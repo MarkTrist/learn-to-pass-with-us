@@ -234,6 +234,102 @@ function formatReadableDate(dateStr) {
 }
 
 // ============================================================================
+// WORK ROTA .ICS FEED PARSER (TREATS ALL EVENTS AS UNAVAILABLE REGARDLESS OF BUSY/FREE)
+// ============================================================================
+function parseICSFeedEvents(icsText) {
+  if (!icsText || typeof icsText !== 'string') return [];
+  // Unfold folded RFC 5545 lines (CRLF + space/tab)
+  const unfolded = icsText.replace(/\r?\n[ \t]/g, '');
+  const lines = unfolded.split(/\r?\n/);
+
+  const events = [];
+  let inEvent = false;
+  let current = null;
+
+  const parseIcsDateTime = (rawVal) => {
+    if (!rawVal) return null;
+    const clean = rawVal.trim();
+    // All-day format: YYYYMMDD
+    if (/^\d{8}$/.test(clean)) {
+      const y = clean.slice(0, 4);
+      const m = clean.slice(4, 6);
+      const d = clean.slice(6, 8);
+      return { dateStr: `${y}-${m}-${d}`, timeStr: null, isAllDay: true };
+    }
+    // Date-time format: YYYYMMDDTHHMMSS or YYYYMMDDTHHMMSSZ
+    const match = clean.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/);
+    if (!match) return null;
+    const [, y, m, d, hh, mm, ss, isUtc] = match;
+    if (isUtc === 'Z') {
+      const utcDate = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), Number(hh), Number(mm), Number(ss)));
+      const localY = utcDate.getFullYear();
+      const localM = String(utcDate.getMonth() + 1).padStart(2, '0');
+      const localD = String(utcDate.getDate()).padStart(2, '0');
+      const localH = String(utcDate.getHours()).padStart(2, '0');
+      const localMin = String(utcDate.getMinutes()).padStart(2, '0');
+      return {
+        dateStr: `${localY}-${localM}-${localD}`,
+        timeStr: `${localH}:${localMin}`,
+        isAllDay: false
+      };
+    }
+    return {
+      dateStr: `${y}-${m}-${d}`,
+      timeStr: `${hh}:${mm}`,
+      isAllDay: false
+    };
+  };
+
+  for (const line of lines) {
+    if (line === 'BEGIN:VEVENT') {
+      inEvent = true;
+      current = {};
+      continue;
+    }
+    if (line === 'END:VEVENT') {
+      if (inEvent && current && current.dtstart) {
+        const startParsed = parseIcsDateTime(current.dtstart);
+        const endParsed = parseIcsDateTime(current.dtend);
+        if (startParsed) {
+          // NOTE: Intentionally ignores TRANSP:TRANSPARENT ("Free" in Google Calendar)
+          // so EVERY event on the work rota blocks instructor availability.
+          events.push({
+            id: `rota-${current.uid || `${startParsed.dateStr}-${startParsed.timeStr || 'all'}-${events.length}`}`,
+            title: current.summary || 'Work Rota Shift',
+            date: startParsed.dateStr,
+            allDay: startParsed.isAllDay,
+            startTime: startParsed.isAllDay ? '00:00' : startParsed.timeStr,
+            endTime:
+              startParsed.isAllDay
+                ? '23:59'
+                : endParsed?.timeStr || minutesToTime(timeToMinutes(startParsed.timeStr) + 60),
+            source: 'ical_rota'
+          });
+        }
+      }
+      inEvent = false;
+      current = null;
+      continue;
+    }
+
+    if (inEvent && current) {
+      const colonIdx = line.indexOf(':');
+      if (colonIdx === -1) continue;
+      const rawKey = line.slice(0, colonIdx);
+      const val = line.slice(colonIdx + 1);
+      const baseKey = rawKey.split(';')[0].toUpperCase();
+
+      if (baseKey === 'SUMMARY') current.summary = val.replace(/\\,/g, ',').replace(/\\n/g, ' ');
+      if (baseKey === 'UID') current.uid = val.replace(/[^a-zA-Z0-9_-]/g, '');
+      if (baseKey === 'DTSTART') current.dtstart = val;
+      if (baseKey === 'DTEND') current.dtend = val;
+    }
+  }
+
+  return events;
+}
+
+// ============================================================================
 // MULTI-PLATFORM CALENDAR EXPORT HELPERS (GOOGLE, APPLE .ICS, OUTLOOK, YAHOO)
 // ============================================================================
 function buildLessonICSContent(lessonList, pupilName) {
@@ -734,13 +830,16 @@ export default function App() {
       workStart: '07:00',
       workEnd: '18:00',
       primaryGoogleConnected: true,
-      secondaryIcalUrl: 'https://calendar.google.com/calendar/ical/shift.work%40gmail.com/private-98a7b6c5d4/basic.ics',
+      secondaryIcalUrl: '',
       secondaryShiftEnabled: true,
       secondaryShiftStart: '06:00',
       secondaryShiftEnd: '17:00',
-      secondaryShiftDays: [1, 3] // Monday & Wednesday external shift example
+      secondaryShiftDays: [],
+      lastRotaSyncAt: null,
+      syncedRotaCount: 0
     })
   );
+  const [rotaEvents, setRotaEvents] = useState(() => loadFromStorage('rotaEvents', []));
 
   // 1. Authenticate with Cloud Backend FIRST (Mandatory Auth-Before-Queries)
   useEffect(() => {
@@ -858,8 +957,9 @@ export default function App() {
           const data = snap.data();
           if (data.settings) setSettings(data.settings);
           if (data.customCarPhoto !== undefined) setCustomCarPhoto(data.customCarPhoto);
+          if (Array.isArray(data.rotaEvents)) setRotaEvents(data.rotaEvents);
         } else {
-          setDoc(configDocRef, { settings, customCarPhoto: null });
+          setDoc(configDocRef, { settings, customCarPhoto: null, rotaEvents: [] });
         }
       },
       (err) => console.error('School config sync error:', err)
@@ -884,6 +984,7 @@ export default function App() {
   useEffect(() => saveToStorage('syllabus', syllabusProgress), [syllabusProgress]);
   useEffect(() => saveToStorage('customCarPhoto', customCarPhoto), [customCarPhoto]);
   useEffect(() => saveToStorage('settings', settings), [settings]);
+  useEffect(() => saveToStorage('rotaEvents', rotaEvents), [rotaEvents]);
 
   // Cloud Write Helpers
   const persistCloudDoc = async (colName, docId, payload) => {
@@ -950,11 +1051,17 @@ export default function App() {
     const endLimit = timeToMinutes(settings.workEnd || '18:00');
     const slots = [];
 
-    // 1. Check Unavailability blocks on targetDate
-    const dayUnavailBlocks = unavailability.filter((u) => u.date === targetDate);
+    // 1. Combine manual unavailability blocks + synced .ics work rota events (ignoring Google's "Free" status)
+    const dayRotaBlocks = settings.secondaryShiftEnabled
+      ? rotaEvents.filter((r) => r.date === targetDate)
+      : [];
+    const dayUnavailBlocks = [
+      ...unavailability.filter((u) => u.date === targetDate),
+      ...dayRotaBlocks
+    ];
     const isAllDayBlocked = dayUnavailBlocks.some((u) => u.allDay);
 
-    // 2. Check Secondary Google Calendar recurring external shift (e.g., 06:00 - 17:00 on selected weekdays)
+    // 2. Check Secondary Google Calendar recurring weekday shift fallback (if configured)
     const [y, m, d] = targetDate.split('-').map(Number);
     const dayOfWeek = new Date(y, m - 1, d).getDay(); // 0=Sun, 1=Mon...
     const hasSecondaryShift =
@@ -1589,6 +1696,15 @@ export default function App() {
             onPersistSettings={(newSettings) =>
               persistCloudDoc('schoolConfig', 'main', { settings: newSettings })
             }
+            rotaEvents={rotaEvents}
+            onSyncRotaEvents={(parsedEvents, updatedSettings) => {
+              setRotaEvents(parsedEvents);
+              setSettings(updatedSettings);
+              persistCloudDoc('schoolConfig', 'main', {
+                rotaEvents: parsedEvents,
+                settings: updatedSettings
+              });
+            }}
             unavailability={unavailability}
             setUnavailability={setUnavailability}
             onAddCloudUnavail={(block) => persistCloudDoc('unavailability', block.id, block)}
@@ -3059,6 +3175,8 @@ function CalendarSyncAndUnavailabilityView({
   settings,
   setSettings,
   onPersistSettings,
+  rotaEvents = [],
+  onSyncRotaEvents,
   unavailability,
   setUnavailability,
   onAddCloudUnavail,
@@ -3078,7 +3196,74 @@ function CalendarSyncAndUnavailabilityView({
   const [shiftEnabled, setShiftEnabled] = useState(Boolean(settings.secondaryShiftEnabled));
   const [shiftStart, setShiftStart] = useState(settings.secondaryShiftStart || '06:00');
   const [shiftEnd, setShiftEnd] = useState(settings.secondaryShiftEnd || '17:00');
-  const [shiftDays, setShiftDays] = useState(settings.secondaryShiftDays || [1, 3]);
+  const [shiftDays, setShiftDays] = useState(settings.secondaryShiftDays || []);
+  const [isSyncingRota, setIsSyncingRota] = useState(false);
+
+  const handleSyncWorkRotaFeed = async (targetUrl = icalUrl) => {
+    const cleanUrl = (targetUrl || '').trim();
+    if (!cleanUrl) {
+      notify('Paste Your Work Rota Link First', 'Enter your .ics or webcal:// work rota feed URL above.', 'error');
+      return;
+    }
+
+    // Convert webcal:// to https:// so browser fetch can retrieve it
+    const httpUrl = cleanUrl.replace(/^webcal:\/\//i, 'https://');
+    setIsSyncingRota(true);
+
+    try {
+      let icsContent = '';
+      // Attempt direct fetch first, then fallback to public CORS relay if the rota server blocks cross-origin requests
+      try {
+        const directRes = await fetch(httpUrl);
+        if (directRes.ok) {
+          icsContent = await directRes.text();
+        }
+      } catch (_) {
+        // Ignore direct CORS error and try proxy relay below
+      }
+
+      if (!icsContent || !icsContent.includes('BEGIN:VCALENDAR')) {
+        const proxyRes = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(httpUrl)}`);
+        if (!proxyRes.ok) {
+          throw new Error('Could not reach the work rota feed URL.');
+        }
+        icsContent = await proxyRes.text();
+      }
+
+      if (!icsContent.includes('BEGIN:VCALENDAR')) {
+        throw new Error('The link did not return a valid .ics calendar feed.');
+      }
+
+      const parsedEvents = parseICSFeedEvents(icsContent);
+      const updatedSettings = {
+        ...settings,
+        workStart,
+        workEnd,
+        secondaryIcalUrl: cleanUrl,
+        secondaryShiftEnabled: true,
+        secondaryShiftStart: shiftStart,
+        secondaryShiftEnd: shiftEnd,
+        secondaryShiftDays: shiftDays,
+        lastRotaSyncAt: new Date().toISOString(),
+        syncedRotaCount: parsedEvents.length
+      };
+
+      setShiftEnabled(true);
+      onSyncRotaEvents?.(parsedEvents, updatedSettings);
+      notify(
+        `Synced ${parsedEvents.length} Rota Shift(s)!`,
+        'All events from your work rota now block pupil bookings—even if marked "Free" in Google Calendar.'
+      );
+    } catch (err) {
+      notify(
+        'Could Not Fetch Feed Directly',
+        err.message || 'Check that the link is the original .ics / webcal:// rota URL.',
+        'error'
+      );
+    } finally {
+      setIsSyncingRota(false);
+    }
+  };
 
   const handleSaveSettings = (e) => {
     e.preventDefault();
@@ -3287,7 +3472,7 @@ function CalendarSyncAndUnavailabilityView({
           <div className="p-4 rounded-xl bg-indigo-50/60 border border-indigo-200 space-y-3">
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-extrabold uppercase tracking-wider text-indigo-950">
-                2nd Google Account Feed (Free Private iCal)
+                Work Rota / 2nd Calendar Feed (.ics / webcal://)
               </h4>
               <label className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-900 cursor-pointer">
                 <input
@@ -3300,23 +3485,51 @@ function CalendarSyncAndUnavailabilityView({
               </label>
             </div>
 
+            <div className="p-2.5 rounded-lg bg-white/90 border border-indigo-200 text-[11px] text-indigo-950 leading-relaxed">
+              <strong>Ignores Google &ldquo;Free&rdquo; Status:</strong> Even if your imported work rota shows as <em>Free</em> instead of <em>Busy</em> in Google Calendar, every shift event in this feed automatically blocks pupil bookings during those hours.
+            </div>
+
             <div>
               <label className="block text-xs font-bold text-indigo-900 mb-1">
-                Secret address in iCal format (.ics URL from 2nd Google Calendar)
+                Work Rota .ics / webcal:// URL (or Private Google iCal link)
               </label>
-              <input
-                type="text"
-                value={icalUrl}
-                onChange={(e) => setIcalUrl(e.target.value)}
-                placeholder="https://calendar.google.com/calendar/ical/.../private-.../basic.ics"
-                className="w-full rounded-xl border border-indigo-200 px-3 py-2 text-xs font-mono bg-white text-slate-900"
-              />
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="text"
+                  value={icalUrl}
+                  onChange={(e) => setIcalUrl(e.target.value)}
+                  placeholder="https://... or webcal://... (.ics feed URL)"
+                  className="flex-1 rounded-xl border border-indigo-200 px-3 py-2 text-xs font-mono bg-white text-slate-900"
+                />
+                <button
+                  type="button"
+                  disabled={isSyncingRota}
+                  onClick={() => handleSyncWorkRotaFeed(icalUrl)}
+                  className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 whitespace-nowrap shadow-sm"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncingRota ? 'animate-spin' : ''}`} />
+                  {isSyncingRota ? 'Syncing...' : 'Sync Rota Now'}
+                </button>
+              </div>
+              {rotaEvents.length > 0 && (
+                <p className="text-[11px] font-bold text-emerald-700 mt-1.5">
+                  ✓ {rotaEvents.length} work rota shift(s) actively blocking availability
+                  {settings.lastRotaSyncAt
+                    ? ` (Last synced: ${new Date(settings.lastRotaSyncAt).toLocaleString('en-GB', {
+                        day: 'numeric',
+                        month: 'short',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })})`
+                    : ''}
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-bold text-indigo-900 mb-1">
-                  External Job Shift Start
+                  Fallback Recurring Shift Start
                 </label>
                 <input
                   type="time"
@@ -3327,7 +3540,7 @@ function CalendarSyncAndUnavailabilityView({
               </div>
               <div>
                 <label className="block text-xs font-bold text-indigo-900 mb-1">
-                  External Job Shift End
+                  Fallback Recurring Shift End
                 </label>
                 <input
                   type="time"
@@ -3340,7 +3553,7 @@ function CalendarSyncAndUnavailabilityView({
 
             <div>
               <span className="block text-xs font-bold text-indigo-900 mb-1.5">
-                Days with External Shift (Blocks {shiftStart}–{shiftEnd}, leaves evening lessons open!):
+                Optional Fixed Weekly Shift Days (Leave all unselected if using your live .ics rota link above):
               </span>
               <div className="flex flex-wrap gap-1.5">
                 {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((dName, idx) => {
