@@ -40,7 +40,7 @@ import {
   Eye,
   EyeOff
 } from 'lucide-react';
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import {
   getFirestore,
@@ -52,317 +52,257 @@ import {
 } from 'firebase/firestore';
 
 // ============================================================================
-// FIREBASE CLOUD BACKEND INITIALIZATION (MANDATORY MULTI-DEVICE SYNC)
+// FIREBASE CLOUD INITIALIZATION (SAFE FALLBACK FOR BOTH PREVIEW & VERCEL)
 // ============================================================================
-const USER_FIREBASE_CONFIG = {
-  apiKey: "AIzaSyDuA9CWlLcRbyHEVpW1hXaJ5hPnAmaOh2E",
-  authDomain: "learn-2-pass-with-us.firebaseapp.com",
-  projectId: "learn-2-pass-with-us",
-  storageBucket: "learn-2-pass-with-us.firebasestorage.app",
-  messagingSenderId: "131210341201",
-  appId: "1:131210341201:web:b9e6ec1ae5466921e40170",
-  measurementId: "G-YNMSVX22XL"
-};
-
 const firebaseConfig =
-  typeof __firebase_config !== 'undefined'
+  typeof __firebase_config !== 'undefined' && __firebase_config
     ? JSON.parse(__firebase_config)
-    : USER_FIREBASE_CONFIG;
-const firebaseApp = firebaseConfig ? initializeApp(firebaseConfig) : null;
-const auth = firebaseApp ? getAuth(firebaseApp) : null;
-const db = firebaseApp ? getFirestore(firebaseApp) : null;
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'learn-to-pass-with-us';
+    : {
+        apiKey: 'AIzaSyDummyKeyForPreviewModeOnly12345',
+        authDomain: 'learn-2-pass-with-us.firebaseapp.com',
+        projectId: 'learn-2-pass-with-us',
+        storageBucket: 'learn-2-pass-with-us.firebasestorage.app',
+        messagingSenderId: '100000000000',
+        appId: '1:100000000000:web:abcdef123456'
+      };
+
+const appId = typeof __app_id !== 'undefined' && __app_id ? __app_id : 'learn-to-pass-with-us';
+
+let firebaseApp = null;
+let auth = null;
+let db = null;
+
+try {
+  firebaseApp = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+  auth = getAuth(firebaseApp);
+  db = getFirestore(firebaseApp);
+} catch (err) {
+  console.warn('Firebase initialization running in offline/local storage mode:', err);
+}
 
 // ============================================================================
-// LOCALSTORAGE FALLBACK PERSISTENCE HELPER
+// WEST SUSSEX POSTCODES, DVSA SYLLABUS & HELPER UTILITIES
 // ============================================================================
-const STORAGE_PREFIX = 'ltpwu_v2_';
+const WEST_SUSSEX_LOCATIONS = [
+  { code: 'PO19', name: 'Chichester City Centre', lat: 50.8365, lng: -0.7792 },
+  { code: 'PO18', name: 'Bosham / Lavant / Goodwood', lat: 50.8652, lng: -0.8214 },
+  { code: 'PO20', name: 'Selsey / Pagham / Hunston', lat: 50.7685, lng: -0.7851 },
+  { code: 'PO21', name: 'Bognor Regis / Aldwick', lat: 50.7838, lng: -0.6746 },
+  { code: 'PO22', name: 'Felpham / Middleton / Yapton', lat: 50.7955, lng: -0.6312 },
+  { code: 'PO10', name: 'Emsworth / Southbourne / Westbourne', lat: 50.8475, lng: -0.9367 },
+  { code: 'PO9', name: 'Havant / Rowlands Castle', lat: 50.8529, lng: -0.9803 },
+  { code: 'BN18', name: 'Arundel / Fontwell / Walberton', lat: 50.8548, lng: -0.5562 },
+  { code: 'BN17', name: 'Littlehampton / Rustington', lat: 50.8104, lng: -0.5401 },
+  { code: 'GU29', name: 'Midhurst / Cocking / Singleton', lat: 50.9854, lng: -0.7405 }
+];
+
+const DVSA_SYLLABUS_SKILLS = [
+  {
+    id: 'cockpit-controls',
+    category: 'Stage 1 • Foundations',
+    title: 'Cockpit Drill, Controls & Safety Checks',
+    desc: 'DSSSM routine, clutch bite control, gears, mirrors & signals.'
+  },
+  {
+    id: 'moving-off-stopping',
+    category: 'Stage 1 • Foundations',
+    title: 'Moving Off & Stopping Safely',
+    desc: 'POM routine, kerbside pulls, uphill/downhill starts & angled pull-outs.'
+  },
+  {
+    id: 'junctions-turns',
+    category: 'Stage 2 • Road Craft',
+    title: 'Junctions, Crossroads & Turns',
+    desc: 'MSPSL routine, emerging left/right, T-junctions & box junctions.'
+  },
+  {
+    id: 'roundabouts',
+    category: 'Stage 2 • Road Craft',
+    title: 'Mini, Standard & Multi-Lane Roundabouts',
+    desc: 'Lane discipline, A27 Chichester bypass roundabouts & spiral markings.'
+  },
+  {
+    id: 'pedestrian-hazards',
+    category: 'Stage 3 • Hazard Awareness',
+    title: 'Pedestrian Crossings & Hazard Perception',
+    desc: 'Zebra, Pelican, Puffin crossings, schools & defensive space.'
+  },
+  {
+    id: 'dual-carriageways',
+    category: 'Stage 3 • Hazard Awareness',
+    title: 'Dual Carriageways & National Speed Roads',
+    desc: 'Slip-road merging, overtaking, rural bends & progressive speed.'
+  },
+  {
+    id: 'manoeuvres',
+    category: 'Stage 4 • Manoeuvres',
+    title: 'DVSA Reversing Manoeuvres & Emergency Stop',
+    desc: 'Parallel park, forward/reverse bay park, pull up on right & emergency stop.'
+  },
+  {
+    id: 'independent-mock',
+    category: 'Stage 5 • Test Ready',
+    title: 'Independent Driving (Sat-Nav / Signs) & Mock Test',
+    desc: '20-min independent route, Show Me / Tell Me questions & Chichester test routes.'
+  }
+];
+
+const SKILL_LEVELS = [
+  { value: 0, label: 'Not Started', color: 'bg-slate-100 text-slate-600 border-slate-300', dot: 'bg-slate-400' },
+  { value: 1, label: 'Introduced', color: 'bg-red-50 text-red-700 border-red-300', dot: 'bg-red-500' },
+  { value: 2, label: 'Guided', color: 'bg-amber-50 text-amber-800 border-amber-300', dot: 'bg-amber-500' },
+  { value: 3, label: 'Prompted', color: 'bg-yellow-50 text-yellow-800 border-yellow-400', dot: 'bg-yellow-500' },
+  { value: 4, label: 'Consistent', color: 'bg-blue-50 text-blue-700 border-blue-300', dot: 'bg-blue-600' },
+  { value: 5, label: 'Test Ready', color: 'bg-emerald-50 text-emerald-800 border-emerald-400', dot: 'bg-emerald-600' }
+];
 
 function loadFromStorage(key, fallback) {
   try {
-    const raw = localStorage.getItem(STORAGE_PREFIX + key);
-    if (raw === null) return fallback;
-    return JSON.parse(raw);
-  } catch (err) {
-    console.error('Storage read error:', err);
+    const raw = localStorage.getItem(`ltpwu_${key}`);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
     return fallback;
   }
 }
 
 function saveToStorage(key, value) {
   try {
-    localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(value));
-  } catch (err) {
-    console.error('Storage write error:', err);
+    localStorage.setItem(`ltpwu_${key}`, JSON.stringify(value));
+  } catch {
+    // Ignore storage quota errors
   }
 }
 
-// ============================================================================
-// CHICHESTER & WEST SUSSEX POSTCODE / LOCATION COORDINATES & DISTANCE ENGINE
-// ============================================================================
-const WEST_SUSSEX_LOCATIONS = [
-  { code: 'PO19', name: 'Chichester City Centre', lat: 50.8365, lng: -0.7792 },
-  { code: 'PO18', name: 'Bosham / Lavant / Fishbourne', lat: 50.8318, lng: -0.8584 },
-  { code: 'PO20', name: 'Selsey / Bracklesham / Witterings', lat: 50.7351, lng: -0.7905 },
-  { code: 'PO21', name: 'Bognor Regis West / Aldwick', lat: 50.7834, lng: -0.6968 },
-  { code: 'PO22', name: 'Bognor Regis East / Felpham / Middleton', lat: 50.7931, lng: -0.6425 },
-  { code: 'BN18', name: 'Arundel / Walberton / Fontwell', lat: 50.8543, lng: -0.5562 },
-  { code: 'PO10', name: 'Emsworth / Southbourne', lat: 50.8471, lng: -0.9365 },
-  { code: 'PO9',  name: 'Havant / Rowlands Castle', lat: 50.8532, lng: -0.9821 },
-  { code: 'PO1',  name: 'Portsmouth / Southsea', lat: 50.7989, lng: -1.0912 },
-  { code: 'GU29', name: 'Midhurst / Cocking', lat: 50.9854, lng: -0.7405 },
-  { code: 'BN17', name: 'Littlehampton / Rustington', lat: 50.8115, lng: -0.5408 }
-];
-
-// Haversine driving distance & time estimator for West Sussex roads
-function calculateTravelMetrics(locA, locB) {
-  if (!locA || !locB) {
-    return { miles: 3.0, driveMins: 10, wrapUpMins: 10, rawTotalMins: 20, bufferedMins: 30 };
-  }
-  const cleanA = locA.trim().toUpperCase();
-  const cleanB = locB.trim().toUpperCase();
-
-  if (cleanA === cleanB) {
-    // Same exact location: 0 drive mins + 10 mins lesson write-up = 10 mins -> rounds up to 15 mins
-    return { miles: 0, driveMins: 0, wrapUpMins: 10, rawTotalMins: 10, bufferedMins: 15 };
-  }
-
-  const findCoords = (str) => {
-    const match = WEST_SUSSEX_LOCATIONS.find(
-      (l) => str.includes(l.code) || str.toLowerCase().includes(l.name.split('/')[0].trim().toLowerCase())
-    );
-    if (match) return match;
-    // Deterministic fallback hash for any custom UK postcode entered
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
-    return {
-      lat: 50.83 + ((hash % 20) * 0.01),
-      lng: -0.77 + (((hash >> 3) % 25) * 0.012)
-    };
-  };
-
-  const cA = findCoords(cleanA);
-  const cB = findCoords(cleanB);
-
-  const R = 3958.8; // Earth radius in miles
-  const dLat = ((cB.lat - cA.lat) * Math.PI) / 180;
-  const dLng = ((cB.lng - cA.lng) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((cA.lat * Math.PI) / 180) *
-      Math.cos((cB.lat * Math.PI) / 180) *
-      Math.sin(dLng / 2) *
-      Math.sin(dLng / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const straightMiles = R * c;
-  // Road winding factor ~1.28x on Sussex A27 / coastal roads
-  const roadMiles = Math.max(0.8, Number((straightMiles * 1.28).toFixed(1)));
-  // Average local driving speed ~24 mph including roundabouts/traffic
-  const driveMins = Math.max(4, Math.round((roadMiles / 24) * 60));
-  const wrapUpMins = 10; // Mandatory 10 mins writing up lesson notes
-  const rawTotalMins = driveMins + wrapUpMins;
-  // Round UP to nearest 15-minute increment (e.g., 16 -> 30, 15 -> 15, 31 -> 45)
-  const bufferedMins = Math.ceil(rawTotalMins / 15) * 15;
-
-  return {
-    miles: roadMiles,
-    driveMins,
-    wrapUpMins,
-    rawTotalMins,
-    bufferedMins
-  };
-}
-
-// ============================================================================
-// DVSA 'READY TO PASS?' SYLLABUS SKILLS (1-5 COMPETENCY SCALE)
-// ============================================================================
-const DVSA_SYLLABUS_SKILLS = [
-  { id: 'cockpit', category: '1. Basics & Safety', title: 'Cockpit Drill, Controls & Mirrors', desc: 'DSSSM routine, seat/steering/mirrors, pedals & auxiliary controls' },
-  { id: 'moving_off', category: '1. Basics & Safety', title: 'Moving Off & Stopping Safely', desc: 'POM routine, uphill/downhill starts, angled starts & kerb control' },
-  { id: 'junctions', category: '2. Road Positioning & Junctions', title: 'Junctions, T-Junctions & Crossroads', desc: 'MSPSL routine, emerging left/right, unmarked junctions & box junctions' },
-  { id: 'roundabouts', category: '2. Road Positioning & Junctions', title: 'Roundabouts & Mini-Roundabouts', desc: 'Lane discipline, Spiral roundabouts (e.g., A27 Chichester), blocker vehicles' },
-  { id: 'crossings', category: '2. Road Positioning & Junctions', title: 'Pedestrian Crossings & Hazards', desc: 'Zebra, Pelican, Puffin, Toucan crossings & school zones' },
-  { id: 'dual_carriageways', category: '3. Higher Speed & Open Roads', title: 'Dual Carriageways & National Speed Limits', desc: 'Joining via slip roads, overtaking, safe separation distances on A27/A259' },
-  { id: 'manoeuvres_bay', category: '4. Manoeuvres', title: 'Bay Parking (Forward & Reverse)', desc: 'Observation, control, accuracy & straightening in test centre bays' },
-  { id: 'manoeuvres_parallel', category: '4. Manoeuvres', title: 'Parallel Parking & Pull Up on Right', desc: 'Reverse parallel behind parked car & pull up on right + 2 car lengths reverse' },
-  { id: 'emergency_stop', category: '4. Manoeuvres', title: 'Emergency Stop & Controlled Braking', desc: 'Prompt reaction without skidding, 360-degree check before moving off' },
-  { id: 'independent', category: '5. Test Readiness', title: 'Independent Driving (Sat Nav & Signs)', desc: '20 mins following TomTom Sat Nav or road signs safely' },
-  { id: 'mock_test', category: '5. Test Readiness', title: 'Full DVSA Mock Driving Test', desc: 'Show Me / Tell Me questions & full 40-min mock route under test conditions' }
-];
-
-const SKILL_LEVELS = [
-  { value: 0, label: 'Not Started', color: 'bg-slate-100 text-slate-600 border-slate-300', dot: 'bg-slate-400' },
-  { value: 1, label: '1: Introduced', color: 'bg-amber-50 text-amber-800 border-amber-300', dot: 'bg-amber-500' },
-  { value: 2, label: '2: Full Instruction', color: 'bg-orange-50 text-orange-800 border-orange-300', dot: 'bg-orange-500' },
-  { value: 3, label: '3: Prompted', color: 'bg-blue-50 text-blue-800 border-blue-300', dot: 'bg-blue-500' },
-  { value: 4, label: '4: Seldom Prompted', color: 'bg-teal-50 text-teal-800 border-teal-300', dot: 'bg-teal-500' },
-  { value: 5, label: '5: Independent / Ready', color: 'bg-emerald-50 text-emerald-800 border-emerald-300', dot: 'bg-emerald-600' }
-];
-
-// ============================================================================
-// DATE & TIME UTILITIES
-// ============================================================================
-function getUpcomingDateStr(daysOffset = 0) {
+function getUpcomingDateStr(offsetDays = 0) {
   const d = new Date();
-  d.setDate(d.getDate() + daysOffset);
-  return d.toISOString().split('T')[0];
-}
-
-function timeToMinutes(timeStr) {
-  if (!timeStr) return 0;
-  const [h, m] = timeStr.split(':').map(Number);
-  return h * 60 + m;
-}
-
-function minutesToTime(totalMins) {
-  const clamped = Math.max(0, Math.min(23 * 60 + 45, totalMins));
-  const h = Math.floor(clamped / 60);
-  const m = clamped % 60;
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  d.setDate(d.getDate() + offsetDays);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 function formatReadableDate(dateStr) {
   if (!dateStr) return '';
   const [y, m, d] = dateStr.split('-').map(Number);
-  const dateObj = new Date(y, m - 1, d);
-  return dateObj.toLocaleDateString('en-GB', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric'
-  });
+  const dt = new Date(y, m - 1, d);
+  return dt.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
-// ============================================================================
-// WORK ROTA .ICS FEED PARSER (TREATS ALL EVENTS AS UNAVAILABLE REGARDLESS OF BUSY/FREE)
-// ============================================================================
+function timeToMinutes(timeStr) {
+  if (!timeStr) return 0;
+  const [h, m] = timeStr.split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+function minutesToTime(totalMins) {
+  const clamped = Math.max(0, Math.min(23 * 60 + 59, totalMins));
+  const h = String(Math.floor(clamped / 60)).padStart(2, '0');
+  const m = String(clamped % 60).padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+function findLocationCoords(locStr) {
+  const code = (locStr || '').split('-')[0].trim().toUpperCase();
+  return (
+    WEST_SUSSEX_LOCATIONS.find((l) => l.code === code) || WEST_SUSSEX_LOCATIONS[0]
+  );
+}
+
+// Calculates road miles, estimated drive minutes, +10m write-up buffer rounded up to 15m slot increment
+function calculateTravelMetrics(fromLocStr, toLocStr) {
+  const from = findLocationCoords(fromLocStr);
+  const to = findLocationCoords(toLocStr);
+  if (from.code === to.code) {
+    return { miles: 1.5, driveMins: 5, rawTotalMins: 15, bufferedMins: 15 };
+  }
+  const R = 3958.8;
+  const dLat = ((to.lat - from.lat) * Math.PI) / 180;
+  const dLng = ((to.lng - from.lng) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((from.lat * Math.PI) / 180) *
+      Math.cos((to.lat * Math.PI) / 180) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const miles = Math.max(1.5, Number((R * c * 1.28).toFixed(1)));
+  const driveMins = Math.max(6, Math.round((miles / 26) * 60));
+  const rawTotalMins = driveMins + 10;
+  const bufferedMins = Math.ceil(rawTotalMins / 15) * 15;
+  return { miles, driveMins, rawTotalMins, bufferedMins };
+}
+
+// Parses .ics calendar feeds regardless of TRANSP:TRANSPARENT ("Free") status
 function parseICSFeedEvents(icsText) {
-  if (!icsText || typeof icsText !== 'string') return [];
-  // Unfold folded RFC 5545 lines (CRLF + space/tab)
   const unfolded = icsText.replace(/\r?\n[ \t]/g, '');
-  const lines = unfolded.split(/\r?\n/);
+  const blocks = unfolded.split('BEGIN:VEVENT').slice(1);
+  const results = [];
 
-  const events = [];
-  let inEvent = false;
-  let current = null;
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i].split('END:VEVENT')[0];
+    const summaryMatch = block.match(/SUMMARY(?:;[^:]*)?:([^\r\n]+)/);
+    const dtStartMatch = block.match(/DTSTART(?:;[^:]*)?:([^\r\n]+)/);
+    const dtEndMatch = block.match(/DTEND(?:;[^:]*)?:([^\r\n]+)/);
 
-  const parseIcsDateTime = (rawVal) => {
-    if (!rawVal) return null;
-    const clean = rawVal.trim();
-    // All-day format: YYYYMMDD
-    if (/^\d{8}$/.test(clean)) {
-      const y = clean.slice(0, 4);
-      const m = clean.slice(4, 6);
-      const d = clean.slice(6, 8);
-      return { dateStr: `${y}-${m}-${d}`, timeStr: null, isAllDay: true };
-    }
-    // Date-time format: YYYYMMDDTHHMMSS or YYYYMMDDTHHMMSSZ
-    const match = clean.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/);
-    if (!match) return null;
-    const [, y, m, d, hh, mm, ss, isUtc] = match;
-    if (isUtc === 'Z') {
-      const utcDate = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), Number(hh), Number(mm), Number(ss)));
-      const localY = utcDate.getFullYear();
-      const localM = String(utcDate.getMonth() + 1).padStart(2, '0');
-      const localD = String(utcDate.getDate()).padStart(2, '0');
-      const localH = String(utcDate.getHours()).padStart(2, '0');
-      const localMin = String(utcDate.getMinutes()).padStart(2, '0');
-      return {
-        dateStr: `${localY}-${localM}-${localD}`,
-        timeStr: `${localH}:${localMin}`,
-        isAllDay: false
-      };
-    }
-    return {
-      dateStr: `${y}-${m}-${d}`,
-      timeStr: `${hh}:${mm}`,
-      isAllDay: false
-    };
-  };
+    if (!dtStartMatch) continue;
+    const rawStart = dtStartMatch[1].trim();
+    const rawEnd = dtEndMatch ? dtEndMatch[1].trim() : rawStart;
+    const title = summaryMatch ? summaryMatch[1].trim() : 'Work Rota Shift';
 
-  for (const line of lines) {
-    if (line === 'BEGIN:VEVENT') {
-      inEvent = true;
-      current = {};
-      continue;
-    }
-    if (line === 'END:VEVENT') {
-      if (inEvent && current && current.dtstart) {
-        const startParsed = parseIcsDateTime(current.dtstart);
-        const endParsed = parseIcsDateTime(current.dtend);
-        if (startParsed) {
-          // NOTE: Intentionally ignores TRANSP:TRANSPARENT ("Free" in Google Calendar)
-          // so EVERY event on the work rota blocks instructor availability.
-          events.push({
-            id: `rota-${current.uid || `${startParsed.dateStr}-${startParsed.timeStr || 'all'}-${events.length}`}`,
-            title: current.summary || 'Work Rota Shift',
-            date: startParsed.dateStr,
-            allDay: startParsed.isAllDay,
-            startTime: startParsed.isAllDay ? '00:00' : startParsed.timeStr,
-            endTime:
-              startParsed.isAllDay
-                ? '23:59'
-                : endParsed?.timeStr || minutesToTime(timeToMinutes(startParsed.timeStr) + 60),
-            source: 'ical_rota'
-          });
-        }
-      }
-      inEvent = false;
-      current = null;
-      continue;
-    }
-
-    if (inEvent && current) {
-      const colonIdx = line.indexOf(':');
-      if (colonIdx === -1) continue;
-      const rawKey = line.slice(0, colonIdx);
-      const val = line.slice(colonIdx + 1);
-      const baseKey = rawKey.split(';')[0].toUpperCase();
-
-      if (baseKey === 'SUMMARY') current.summary = val.replace(/\\,/g, ',').replace(/\\n/g, ' ');
-      if (baseKey === 'UID') current.uid = val.replace(/[^a-zA-Z0-9_-]/g, '');
-      if (baseKey === 'DTSTART') current.dtstart = val;
-      if (baseKey === 'DTEND') current.dtend = val;
+    if (rawStart.length === 8) {
+      const date = `${rawStart.slice(0, 4)}-${rawStart.slice(4, 6)}-${rawStart.slice(6, 8)}`;
+      results.push({
+        id: `rota-${date}-${i}`,
+        title,
+        date,
+        allDay: true,
+        startTime: '00:00',
+        endTime: '23:59'
+      });
+    } else if (rawStart.length >= 13) {
+      const date = `${rawStart.slice(0, 4)}-${rawStart.slice(4, 6)}-${rawStart.slice(6, 8)}`;
+      const startTime = `${rawStart.slice(9, 11)}:${rawStart.slice(11, 13)}`;
+      const endTime =
+        rawEnd.length >= 13 ? `${rawEnd.slice(9, 11)}:${rawEnd.slice(11, 13)}` : '17:00';
+      results.push({
+        id: `rota-${date}-${startTime}-${i}`,
+        title,
+        date,
+        allDay: false,
+        startTime,
+        endTime
+      });
     }
   }
-
-  return events;
+  return results;
 }
 
-// ============================================================================
-// MULTI-PLATFORM CALENDAR EXPORT HELPERS (GOOGLE, APPLE .ICS, OUTLOOK, YAHOO)
-// ============================================================================
-function buildLessonICSContent(lessonList, pupilName) {
+// Calendar Export Helpers (Google, Apple .ics, Outlook, Yahoo)
+function formatICSDateTime(dateStr, timeStr) {
+  return `${dateStr.replace(/-/g, '')}T${timeStr.replace(':', '')}00`;
+}
+
+function buildLessonICSContent(lessonsList, pupilName) {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//Learn To Pass With Us//Driving School Booking//EN',
-    'CALSCALE:GREGORIAN',
-    'METHOD:PUBLISH',
-    `X-WR-CALNAME:Learn To Pass With Us - ${pupilName}`
+    'PRODID:-//Learn To Pass With Us//Driving School//EN',
+    'CALSCALE:GREGORIAN'
   ];
 
-  lessonList.forEach((l) => {
-    const cleanDate = l.date.replace(/-/g, '');
-    const startH = l.startTime.replace(':', '') + '00';
-    const endMins = timeToMinutes(l.startTime) + l.durationMins;
-    const endTimeStr = minutesToTime(endMins).replace(':', '') + '00';
-    const desc = [
-      'Driving Lesson with Learn To Pass With Us (Black VW Golf Mk5 GTI - EN56 WXA)',
-      `Pick-up: ${l.pickupLocation}`,
-      `Instructor Focus: ${l.notes || 'Syllabus driving progression'}`,
-      l.pupilNotes ? `Pupil Note: ${l.pupilNotes}` : ''
-    ]
-      .filter(Boolean)
-      .join('\\n');
-
+  lessonsList.forEach((l) => {
+    const endStr = minutesToTime(timeToMinutes(l.startTime) + l.durationMins);
+    const desc = `Instructor Focus: ${l.notes || 'Syllabus progression'}${
+      l.pupilNotes ? ` | Pupil Note: ${l.pupilNotes}` : ''
+    }`;
     lines.push(
       'BEGIN:VEVENT',
       `UID:${l.id}@learntopasswithus.co.uk`,
-      `DTSTAMP:${cleanDate}T080000Z`,
-      `DTSTART:${cleanDate}T${startH}`,
-      `DTEND:${cleanDate}T${endTimeStr}`,
-      `SUMMARY:Driving Lesson - Learn To Pass With Us (${l.durationMins / 60}h)`,
+      `DTSTAMP:${formatICSDateTime(l.date, l.startTime)}Z`,
+      `DTSTART:${formatICSDateTime(l.date, l.startTime)}`,
+      `DTEND:${formatICSDateTime(l.date, endStr)}`,
+      `SUMMARY:Driving Lesson - Learn To Pass With Us (${pupilName})`,
       `LOCATION:${l.pickupLocation}`,
       `DESCRIPTION:${desc}`,
       'END:VEVENT'
@@ -386,45 +326,55 @@ function downloadICSFile(filename, content) {
 }
 
 function buildGoogleCalendarUrl(lesson) {
-  const cleanDate = lesson.date.replace(/-/g, '');
-  const startH = lesson.startTime.replace(':', '') + '00';
-  const endTimeStr = minutesToTime(timeToMinutes(lesson.startTime) + lesson.durationMins).replace(':', '') + '00';
-  const title = encodeURIComponent(`Driving Lesson - Learn To Pass With Us`);
+  const endStr = minutesToTime(timeToMinutes(lesson.startTime) + lesson.durationMins);
+  const dates = `${formatICSDateTime(lesson.date, lesson.startTime)}/${formatICSDateTime(
+    lesson.date,
+    endStr
+  )}`;
+  const text = encodeURIComponent('Driving Lesson - Learn To Pass With Us (EN56 WXA)');
   const details = encodeURIComponent(
-    `Vehicle: Black VW Golf Mk5 GTI (EN56 WXA)\nNext Lesson Focus: ${lesson.notes || 'Syllabus progression'}\nPupil Note: ${lesson.pupilNotes || 'None'}`
+    `Next Lesson Focus: ${lesson.notes || 'Syllabus progression'}\nPupil Note: ${
+      lesson.pupilNotes || 'None'
+    }`
   );
-  const loc = encodeURIComponent(lesson.pickupLocation);
-  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${cleanDate}T${startH}/${cleanDate}T${endTimeStr}&details=${details}&location=${loc}`;
+  const location = encodeURIComponent(lesson.pickupLocation);
+  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${text}&dates=${dates}&details=${details}&location=${location}`;
 }
 
 function buildOutlookWebUrl(lesson) {
   const endStr = minutesToTime(timeToMinutes(lesson.startTime) + lesson.durationMins);
   const startIso = `${lesson.date}T${lesson.startTime}:00`;
   const endIso = `${lesson.date}T${endStr}:00`;
-  const subject = encodeURIComponent('Driving Lesson - Learn To Pass With Us');
-  const body = encodeURIComponent(
-    `Vehicle: Black VW Golf Mk5 GTI (EN56 WXA)\nNext Lesson Focus: ${lesson.notes || 'Syllabus progression'}\nPupil Note: ${lesson.pupilNotes || 'None'}`
-  );
-  const loc = encodeURIComponent(lesson.pickupLocation);
-  return `https://outlook.live.com/calendar/0/deeplink/compose?subject=${subject}&startdt=${startIso}&enddt=${endIso}&body=${body}&location=${loc}`;
+  return `https://outlook.live.com/calendar/0/deeplink/compose?subject=${encodeURIComponent(
+    'Driving Lesson - Learn To Pass With Us'
+  )}&startdt=${encodeURIComponent(startIso)}&enddt=${encodeURIComponent(
+    endIso
+  )}&location=${encodeURIComponent(lesson.pickupLocation)}&body=${encodeURIComponent(
+    lesson.notes || 'Driving lesson'
+  )}`;
 }
 
 function buildYahooCalendarUrl(lesson) {
-  const cleanDate = lesson.date.replace(/-/g, '');
-  const startH = lesson.startTime.replace(':', '') + '00';
-  const endTimeStr = minutesToTime(timeToMinutes(lesson.startTime) + lesson.durationMins).replace(':', '') + '00';
-  const title = encodeURIComponent('Driving Lesson - Learn To Pass With Us');
-  const desc = encodeURIComponent(
-    `Vehicle: Black VW Golf Mk5 GTI (EN56 WXA) | Focus: ${lesson.notes || 'Syllabus progression'}`
-  );
-  const loc = encodeURIComponent(lesson.pickupLocation);
-  return `https://calendar.yahoo.com/?v=60&title=${title}&st=${cleanDate}T${startH}&et=${cleanDate}T${endTimeStr}&desc=${desc}&in_loc=${loc}`;
+  const endStr = minutesToTime(timeToMinutes(lesson.startTime) + lesson.durationMins);
+  const st = formatICSDateTime(lesson.date, lesson.startTime);
+  const et = formatICSDateTime(lesson.date, endStr);
+  return `https://calendar.yahoo.com/?v=60&title=${encodeURIComponent(
+    'Driving Lesson - Learn To Pass With Us'
+  )}&st=${st}&et=${et}&in_loc=${encodeURIComponent(
+    lesson.pickupLocation
+  )}&desc=${encodeURIComponent(lesson.notes || 'Driving lesson')}`;
 }
 
 // ============================================================================
-// CUSTOM SVG ARTWORK & PHOTO UPLOADER: BLACK VW GOLF MK5 GTI (UK REG: EN56 WXA)
+// SUB-COMPONENT: VW GOLF MK5 GTI (EN56 WXA) VEHICLE SHOWCASE CARD
 // ============================================================================
-function VWGolfGTIBadge({ compact = false, customCarPhoto, onUploadCarPhoto, onResetCarPhoto, isInstructor }) {
+function VWGolfGTIBadge({
+  customCarPhoto,
+  onUploadCarPhoto,
+  onResetCarPhoto,
+  isInstructor = false,
+  compact = true
+}) {
   const fileInputRef = useRef(null);
 
   const handleFileChange = (e) => {
@@ -433,191 +383,94 @@ function VWGolfGTIBadge({ compact = false, customCarPhoto, onUploadCarPhoto, onR
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === 'string') {
-        onUploadCarPhoto(reader.result);
+        onUploadCarPhoto?.(reader.result);
       }
     };
     reader.readAsDataURL(file);
-    e.target.value = '';
   };
 
   return (
-    <div className={`relative overflow-hidden rounded-2xl bg-gradient-to-br from-zinc-900 via-neutral-900 to-zinc-800 border border-zinc-700/80 shadow-xl ${compact ? 'p-3' : 'p-5 sm:p-6'}`}>
-      {/* Subtle GTI Red Honeycomb Accent Strip */}
-      <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-red-600 via-red-500 to-amber-500" />
-      <div className="flex flex-col md:flex-row items-center justify-between gap-5">
-        <div className="flex-1 text-center md:text-left">
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-500/15 border border-red-500/30 text-red-400 text-xs font-semibold tracking-wide uppercase mb-2">
-            <Car className="w-3.5 h-3.5" /> Official Dual-Control Training Car
+    <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-800 text-white border border-zinc-800 shadow-lg p-5">
+      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-600 via-amber-400 to-emerald-500" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="space-y-1.5">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-red-500/15 border border-red-500/30 text-red-300 text-[10px] font-extrabold uppercase tracking-wider">
+            Official Dual-Control Training Car
           </div>
-          <h3 className={`${compact ? 'text-base' : 'text-xl sm:text-2xl'} font-extrabold text-white tracking-tight`}>
+          <h3 className="text-lg sm:text-xl font-black tracking-tight text-white">
             Black Volkswagen Golf Mk5 GTI
           </h3>
-          <p className="text-zinc-400 text-xs sm:text-sm mt-0.5">
-            Manual 6-Speed • Dual Controls Fitted • Air Con • Chichester &amp; West Sussex
+          <p className="text-xs text-zinc-300">
+            Manual 6-Speed • He-Man Dual Controls • Chichester &amp; West Sussex Test Centres
           </p>
 
-          <div className="mt-3 flex flex-wrap items-center justify-center md:justify-start gap-3">
-            {/* Authentic UK Front/Rear Style Registration Plate */}
-            <div className="inline-flex items-stretch rounded-md overflow-hidden border-2 border-zinc-950 shadow-md">
-              <div className="bg-blue-700 px-1.5 flex flex-col items-center justify-center text-[9px] font-bold text-white leading-tight">
-                <span>UK</span>
-              </div>
-              <div className="bg-amber-400 px-3.5 py-1 text-zinc-950 font-black tracking-widest text-sm sm:text-base font-mono">
-                EN56 WXA
-              </div>
-            </div>
-
-            {/* Car Photo Uploader / Reset Controls */}
-            {!compact && onUploadCarPhoto && (
-              <div className="flex items-center gap-2">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileChange}
-                  className="hidden"
-                />
+          {isInstructor && (
+            <div className="pt-2 flex flex-wrap items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-sm transition"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                {customCarPhoto ? 'Change Car Photo' : 'Upload Your Car Photo'}
+              </button>
+              {customCarPhoto && (
                 <button
                   type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-600 text-xs font-bold transition shadow-sm"
+                  onClick={onResetCarPhoto}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold"
                 >
-                  <Camera className="w-3.5 h-3.5 text-emerald-400" />
-                  {customCarPhoto ? 'Change Car Photo' : 'Upload Your Car Photo'}
+                  <RotateCcw className="w-3 h-3" /> Reset
                 </button>
-                {customCarPhoto && (
-                  <button
-                    type="button"
-                    onClick={onResetCarPhoto}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-zinc-800/80 hover:bg-red-950/60 text-zinc-400 hover:text-red-300 border border-zinc-700 text-xs font-semibold transition"
-                    title="Reset to Default Golf GTI Illustration"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    Reset
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Either User's Uploaded Real Car Photo OR Custom Vector Illustration of Black VW Golf Mk5 GTI */}
-        <div className={`${compact ? 'w-44' : 'w-full sm:w-80 md:w-80'} flex-shrink-0`}>
+        {/* Custom Photo or Crisp Vector Illustration of Black Golf Mk5 GTI (EN56 WXA) */}
+        <div className={`flex-shrink-0 ${compact ? 'sm:w-56' : 'sm:w-64'}`}>
           {customCarPhoto ? (
-            <div className="relative rounded-xl overflow-hidden border-2 border-zinc-700 shadow-2xl bg-zinc-950 aspect-[16/10]">
-              <img
-                src={customCarPhoto}
-                alt="Learn To Pass With Us - Black VW Golf Mk5 GTI EN56 WXA"
-                className="w-full h-full object-cover"
-              />
-              <div className="absolute bottom-2 right-2 bg-black/75 backdrop-blur-sm text-white text-[10px] font-bold px-2 py-0.5 rounded-md border border-white/15">
-                Learn To Pass With Us • EN56 WXA
-              </div>
-            </div>
+            <img
+              src={customCarPhoto}
+              alt="Black Volkswagen Golf Mk5 GTI EN56 WXA"
+              className="w-full h-32 object-cover rounded-xl border border-zinc-700 shadow-md"
+            />
           ) : (
-            <svg viewBox="0 0 340 135" className="w-full h-auto drop-shadow-[0_10px_14px_rgba(0,0,0,0.75)]">
-              <defs>
-                <linearGradient id="golfBody" x1="0%" y1="0%" x2="0%" y2="100%">
-                  <stop offset="0%" stopColor="#3f3f46" />
-                  <stop offset="35%" stopColor="#18181b" />
-                  <stop offset="85%" stopColor="#09090b" />
-                  <stop offset="100%" stopColor="#000000" />
-                </linearGradient>
-                <linearGradient id="glassGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#52525b" stopOpacity="0.85" />
-                  <stop offset="100%" stopColor="#18181b" stopOpacity="0.95" />
-                </linearGradient>
-                <radialGradient id="wheelRim" cx="50%" cy="50%" r="50%">
-                  <stop offset="0%" stopColor="#e4e4e7" />
-                  <stop offset="70%" stopColor="#71717a" />
-                  <stop offset="100%" stopColor="#27272a" />
-                </radialGradient>
-              </defs>
-
-              {/* Ground Shadow */}
-              <ellipse cx="170" cy="122" rx="148" ry="8" fill="#000000" opacity="0.65" />
-
-              {/* Roof Spoiler */}
-              <path d="M 65 40 L 50 38 L 54 44 L 72 44 Z" fill="#18181b" />
-
-              {/* Main Hatchback Silhouette (VW Golf Mk5 Profile) */}
-              <path
-                d="M 48 98 L 36 95 C 33 88 35 72 43 62 L 62 41 C 88 33 145 31 195 36 L 245 58 C 276 62 301 69 308 82 L 310 96 L 296 101 L 278 101 C 278 78 242 78 242 101 L 106 101 C 106 78 70 78 70 101 Z"
-                fill="url(#golfBody)"
-                stroke="#52525b"
-                strokeWidth="1.2"
-              />
-
-              {/* Glossy Shoulder Highlight */}
-              <path
-                d="M 55 64 Q 150 58 295 72"
-                fill="none"
-                stroke="#71717a"
-                strokeWidth="1.3"
-                opacity="0.65"
-              />
-
-              {/* Side Windows */}
-              <path
-                d="M 73 45 L 136 42 L 136 60 L 63 60 Z"
-                fill="url(#glassGrad)"
-                stroke="#3f3f46"
-                strokeWidth="1"
-              />
-              <path
-                d="M 144 42 L 191 43 L 228 60 L 144 60 Z"
-                fill="url(#glassGrad)"
-                stroke="#3f3f46"
-                strokeWidth="1"
-              />
-
-              {/* B-Pillar & Door Cutlines */}
-              <line x1="140" y1="42" x2="140" y2="96" stroke="#27272a" strokeWidth="1.5" />
-              <line x1="205" y1="60" x2="202" y2="96" stroke="#27272a" strokeWidth="1" />
-              {/* Door Handles */}
-              <rect x="115" y="66" width="12" height="3" rx="1.5" fill="#52525b" />
-              <rect x="180" y="67" width="12" height="3" rx="1.5" fill="#52525b" />
-
-              {/* Side Mirror */}
-              <path d="M 218 56 L 229 53 L 231 60 L 219 61 Z" fill="#27272a" stroke="#52525b" strokeWidth="0.8" />
-
-              {/* Iconic GTI Red Grille Trim & Headlight */}
-              <path d="M 288 73 L 306 77 L 303 82 L 285 78 Z" fill="#e4e4e7" />
-              <line x1="304" y1="83" x2="309" y2="85" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" />
-
-              {/* Red GTI Brake Calipers */}
-              <rect x="82" y="92" width="7" height="10" rx="2" fill="#dc2626" />
-              <rect x="254" y="92" width="7" height="10" rx="2" fill="#dc2626" />
-
-              {/* Rear Wheel (Monza Alloy Style) */}
-              <circle cx="88" cy="101" r="20" fill="#09090b" stroke="#27272a" strokeWidth="2" />
-              <circle cx="88" cy="101" r="13.5" fill="url(#wheelRim)" />
-              <circle cx="88" cy="101" r="4" fill="#18181b" />
-              <circle cx="83" cy="96" r="2.3" fill="#18181b" />
-              <circle cx="93" cy="96" r="2.3" fill="#18181b" />
-              <circle cx="83" cy="106" r="2.3" fill="#18181b" />
-              <circle cx="93" cy="106" r="2.3" fill="#18181b" />
-
-              {/* Front Wheel (Monza Alloy Style) */}
-              <circle cx="260" cy="101" r="20" fill="#09090b" stroke="#27272a" strokeWidth="2" />
-              <circle cx="260" cy="101" r="13.5" fill="url(#wheelRim)" />
-              <circle cx="260" cy="101" r="4" fill="#18181b" />
-              <circle cx="255" cy="96" r="2.3" fill="#18181b" />
-              <circle cx="265" cy="96" r="2.3" fill="#18181b" />
-              <circle cx="255" cy="106" r="2.3" fill="#18181b" />
-              <circle cx="265" cy="106" r="2.3" fill="#18181b" />
-
-              {/* Roof Driving School L-Plate Top Box */}
-              <polygon points="122,33 132,16 202,16 212,33" fill="#ffffff" stroke="#d4d4d8" strokeWidth="1" />
-              <text x="135" y="28" textAnchor="middle" fill="#dc2626" fontWeight="900" fontSize="10" fontFamily="sans-serif">L</text>
-              <text x="167" y="24" textAnchor="middle" fill="#18181b" fontWeight="800" fontSize="4.6" fontFamily="sans-serif">Learn To Pass</text>
-              <text x="167" y="29.5" textAnchor="middle" fill="#18181b" fontWeight="800" fontSize="4.6" fontFamily="sans-serif">With Us</text>
-              <text x="199" y="28" textAnchor="middle" fill="#dc2626" fontWeight="900" fontSize="10" fontFamily="sans-serif">L</text>
-
-              {/* Mini Rear Plate Badge */}
-              <rect x="38" y="83" width="24" height="6.5" rx="1" fill="#facc15" />
-              <text x="50" y="88" textAnchor="middle" fill="#09090b" fontWeight="800" fontSize="4.2" fontFamily="monospace">EN56 WXA</text>
-            </svg>
+            <div className="bg-zinc-950/90 border border-zinc-800 rounded-xl p-3 flex flex-col items-center">
+              <svg viewBox="0 0 280 110" className="w-full h-24">
+                <rect x="82" y="10" width="116" height="18" rx="4" fill="#ffffff" stroke="#18181b" strokeWidth="2" />
+                <rect x="85" y="13" width="14" height="12" rx="2" fill="#dc2626" />
+                <text x="92" y="22" fontSize="9" fontWeight="900" fill="#ffffff" textAnchor="middle">L</text>
+                <rect x="181" y="13" width="14" height="12" rx="2" fill="#dc2626" />
+                <text x="188" y="22" fontSize="9" fontWeight="900" fill="#ffffff" textAnchor="middle">L</text>
+                <text x="140" y="22" fontSize="7" fontWeight="800" fill="#18181b" textAnchor="middle">Learn To Pass</text>
+                <path
+                  d="M25 74 L35 52 L78 30 L175 28 L228 48 L255 56 L258 76 L25 76 Z"
+                  fill="#18181b"
+                  stroke="#3f3f46"
+                  strokeWidth="2"
+                />
+                <path d="M84 35 L132 34 L132 50 L66 50 Z" fill="#27272a" />
+                <path d="M138 34 L174 34 L204 50 L138 50 Z" fill="#27272a" />
+                <line x1="25" y1="62" x2="256" y2="62" stroke="#dc2626" strokeWidth="2.5" />
+                <rect x="28" y="66" width="44" height="11" rx="2" fill="#facc15" />
+                <text x="50" y="74" fontSize="6.5" fontWeight="900" fill="#09090b" textAnchor="middle">EN56 WXA</text>
+                <circle cx="72" cy="78" r="18" fill="#09090b" stroke="#71717a" strokeWidth="3" />
+                <circle cx="72" cy="78" r="9" fill="#d4d4d8" />
+                <circle cx="212" cy="78" r="18" fill="#09090b" stroke="#71717a" strokeWidth="3" />
+                <circle cx="212" cy="78" r="9" fill="#d4d4d8" />
+              </svg>
+              <span className="mt-1 bg-amber-400 text-zinc-950 font-mono font-black text-[10px] px-2 py-0.5 rounded">
+                EN56 WXA
+              </span>
+            </div>
           )}
         </div>
       </div>
@@ -626,185 +479,16 @@ function VWGolfGTIBadge({ compact = false, customCarPhoto, onUploadCarPhoto, onR
 }
 
 // ============================================================================
-// DEFAULT SEED DATA GENERATORS
+// DEFAULT SEED DATA GENERATORS (EMPTY BY DEFAULT FOR PRODUCTION USE)
 // ============================================================================
 function getInitialSeedData() {
-  const tomorrow = getUpcomingDateStr(1);
-  const dayAfter = getUpcomingDateStr(2);
-  const day3 = getUpcomingDateStr(3);
-
-  const accounts = [
-    {
-      id: 'instructor-mark',
-      name: 'Mark (Instructor)',
-      role: 'instructor',
-      email: 'mark@learntopasswithus.co.uk',
-      phone: '07700 900123',
-      postcode: 'PO19 - Chichester City Centre',
-      transmission: 'Manual 6-Speed (Black VW Golf Mk5 GTI - EN56 WXA)'
-    },
-    {
-      id: 'pupil-sarah',
-      name: 'Sarah Jenkins',
-      role: 'pupil',
-      email: 'sarah.jenkins@example.co.uk',
-      phone: '07700 900411',
-      postcode: 'PO19 - Chichester City Centre',
-      testDate: getUpcomingDateStr(28)
-    },
-    {
-      id: 'pupil-callum',
-      name: 'Callum Reed',
-      role: 'pupil',
-      email: 'callum.reed@example.co.uk',
-      phone: '07700 900522',
-      postcode: 'PO21 - Bognor Regis West / Aldwick',
-      testDate: getUpcomingDateStr(45)
-    },
-    {
-      id: 'pupil-chloe',
-      name: 'Chloe Bennett',
-      role: 'pupil',
-      email: 'chloe.bennett@example.co.uk',
-      phone: '07700 900633',
-      postcode: 'PO20 - Selsey / Bracklesham / Witterings',
-      testDate: ''
-    },
-    {
-      id: 'pupil-oliver',
-      name: 'Oliver Hughes',
-      role: 'pupil',
-      email: 'oliver.hughes@example.co.uk',
-      phone: '07700 900744',
-      postcode: 'PO18 - Bosham / Lavant / Fishbourne',
-      testDate: getUpcomingDateStr(18)
-    }
-  ];
-
-  const lessons = [
-    {
-      id: 'lesson-101',
-      pupilId: 'pupil-sarah',
-      pupilName: 'Sarah Jenkins',
-      date: tomorrow,
-      startTime: '09:00',
-      durationMins: 90,
-      pickupLocation: 'PO19 - Chichester City Centre',
-      dropoffLocation: 'PO19 - Chichester City Centre',
-      status: 'confirmed',
-      notes: 'A27 Fishbourne & Stockbridge spiral roundabouts + lane discipline.',
-      pupilNotes: 'Can we also practise parallel parking near Southgate?',
-      reminderSent: false,
-      pupilConfirmedAttendance: false,
-      isOutOfHours: false
-    },
-    {
-      id: 'lesson-102',
-      pupilId: 'pupil-callum',
-      pupilName: 'Callum Reed',
-      date: tomorrow,
-      startTime: '11:15',
-      durationMins: 60,
-      pickupLocation: 'PO21 - Bognor Regis West / Aldwick',
-      dropoffLocation: 'PO21 - Bognor Regis West / Aldwick',
-      status: 'pending',
-      notes: 'Junctions & emerging onto busy A259 coast road.',
-      pupilNotes: 'First time doing multi-lane roundabouts.',
-      reminderSent: false,
-      pupilConfirmedAttendance: false,
-      isOutOfHours: false
-    },
-    {
-      id: 'lesson-103',
-      pupilId: 'pupil-oliver',
-      pupilName: 'Oliver Hughes',
-      date: dayAfter,
-      startTime: '14:00',
-      durationMins: 120,
-      pickupLocation: 'PO18 - Bosham / Lavant / Fishbourne',
-      dropoffLocation: 'PO18 - Bosham / Lavant / Fishbourne',
-      status: 'confirmed',
-      notes: 'Full DVSA Mock Test route around Chichester Test Centre.',
-      pupilNotes: 'Ready for mock test!',
-      reminderSent: false,
-      pupilConfirmedAttendance: false,
-      isOutOfHours: false
-    }
-  ];
-
-  const unavailability = [
-    {
-      id: 'unavail-1',
-      title: 'Dental Appointment (Chichester)',
-      date: day3,
-      allDay: false,
-      startTime: '10:00',
-      endTime: '12:30',
-      source: 'manual'
-    }
-  ];
-
-  const messages = [
-    {
-      id: 'msg-1',
-      fromId: 'pupil-callum',
-      fromName: 'Callum Reed',
-      toId: 'instructor-mark',
-      toName: 'Mark (Instructor)',
-      text: 'Hi Mark! I requested the 11:15am 1-hour slot tomorrow from Aldwick (PO21). Does that give you enough travel time after Chichester?',
-      timestamp: new Date(Date.now() - 3600 * 1000 * 2).toISOString(),
-      type: 'direct',
-      read: false
-    },
-    {
-      id: 'msg-2',
-      fromId: 'instructor-mark',
-      fromName: 'Learn To Pass With Us',
-      toId: 'pupil-sarah',
-      toName: 'Sarah Jenkins',
-      text: `Your lesson with Learn To Pass With Us on ${formatReadableDate(tomorrow)} at 09:00 (1.5 hrs) is confirmed! Pick-up: PO19 - Chichester City Centre. Next lesson focus: A27 Fishbourne & Stockbridge spiral roundabouts.`,
-      timestamp: new Date(Date.now() - 3600 * 1000 * 5).toISOString(),
-      type: 'system',
-      read: true
-    }
-  ];
-
-  const syllabus = {
-    'pupil-sarah': {
-      cockpit: { level: 5, note: 'Spotless DSSSM checks.' },
-      moving_off: { level: 5, note: 'Smooth clutch control on hills.' },
-      junctions: { level: 4, note: 'Good MSPSL timing.' },
-      roundabouts: { level: 3, note: 'Working on A27 spiral lane markings.' },
-      crossings: { level: 4, note: 'Confident around city centre.' },
-      dual_carriageways: { level: 3, note: 'Building confidence on A27 slip roads.' },
-      manoeuvres_bay: { level: 4, note: 'Reverse bay mastered.' },
-      manoeuvres_parallel: { level: 2, note: 'Introduced next lesson.' },
-      emergency_stop: { level: 4, note: 'Quick reaction.' },
-      independent: { level: 2, note: 'Starting sat-nav drills soon.' },
-      mock_test: { level: 0, note: 'Scheduled in 2 weeks.' }
-    },
-    'pupil-callum': {
-      cockpit: { level: 4, note: 'Good setup.' },
-      moving_off: { level: 3, note: 'Consistent.' },
-      junctions: { level: 2, note: 'Watch speed on approach to closed T-junctions.' },
-      roundabouts: { level: 1, note: 'Mini-roundabouts started.' }
-    },
-    'pupil-oliver': {
-      cockpit: { level: 5, note: 'Test ready' },
-      moving_off: { level: 5, note: 'Test ready' },
-      junctions: { level: 5, note: 'Test ready' },
-      roundabouts: { level: 5, note: 'Handled A27 Whyke & Portfield well' },
-      crossings: { level: 5, note: 'Test ready' },
-      dual_carriageways: { level: 5, note: 'Test ready' },
-      manoeuvres_bay: { level: 5, note: 'Test ready' },
-      manoeuvres_parallel: { level: 4, note: 'Just keep steering smooth' },
-      emergency_stop: { level: 5, note: 'Test ready' },
-      independent: { level: 4, note: 'Completed 20m sat nav route' },
-      mock_test: { level: 3, note: 'Full mock test booked' }
-    }
+  return {
+    accounts: [],
+    lessons: [],
+    unavailability: [],
+    messages: [],
+    syllabus: {}
   };
-
-  return { accounts, lessons, unavailability, messages, syllabus };
 }
 
 // ============================================================================
@@ -841,7 +525,7 @@ export default function App() {
   );
   const [rotaEvents, setRotaEvents] = useState(() => loadFromStorage('rotaEvents', []));
 
-  // 1. Authenticate with Cloud Backend FIRST (Mandatory Auth-Before-Queries)
+  // 1. Authenticate with Cloud Backend FIRST
   useEffect(() => {
     if (!auth) return;
     const initAuth = async () => {
@@ -860,7 +544,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 2. Real-Time Cloud Firestore Listeners (Strict /artifacts/{appId}/public/data/... paths)
+  // 2. Real-Time Cloud Firestore Listeners
   useEffect(() => {
     if (!cloudUser || !db) return;
 
@@ -874,13 +558,7 @@ export default function App() {
     const unsubAccounts = onSnapshot(
       accountsCol,
       (snap) => {
-        if (snap.empty) {
-          seed.accounts.forEach((acc) =>
-            setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'accounts', acc.id), acc)
-          );
-        } else {
-          setAccounts(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-        }
+        setAccounts(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
         setCloudReady(true);
       },
       (err) => console.error('Accounts sync error:', err)
@@ -889,15 +567,9 @@ export default function App() {
     const unsubLessons = onSnapshot(
       lessonsCol,
       (snap) => {
-        if (snap.empty) {
-          seed.lessons.forEach((l) =>
-            setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lessons', l.id), l)
-          );
-        } else {
-          const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-          list.sort((a, b) => (a.date + a.startTime).localeCompare(b.date + b.startTime));
-          setLessons(list);
-        }
+        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        list.sort((a, b) => (a.date + a.startTime).localeCompare(b.date + b.startTime));
+        setLessons(list);
       },
       (err) => console.error('Lessons sync error:', err)
     );
@@ -905,13 +577,7 @@ export default function App() {
     const unsubUnavail = onSnapshot(
       unavailCol,
       (snap) => {
-        if (snap.empty) {
-          seed.unavailability.forEach((u) =>
-            setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'unavailability', u.id), u)
-          );
-        } else {
-          setUnavailability(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-        }
+        setUnavailability(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
       },
       (err) => console.error('Unavailability sync error:', err)
     );
@@ -919,15 +585,9 @@ export default function App() {
     const unsubMessages = onSnapshot(
       messagesCol,
       (snap) => {
-        if (snap.empty) {
-          seed.messages.forEach((m) =>
-            setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'messages', m.id), m)
-          );
-        } else {
-          const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-          list.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
-          setMessages(list);
-        }
+        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        list.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+        setMessages(list);
       },
       (err) => console.error('Messages sync error:', err)
     );
@@ -935,17 +595,11 @@ export default function App() {
     const unsubSyllabus = onSnapshot(
       syllabusCol,
       (snap) => {
-        if (snap.empty) {
-          Object.entries(seed.syllabus).forEach(([pid, skillsObj]) =>
-            setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'syllabus', pid), { skills: skillsObj })
-          );
-        } else {
-          const map = {};
-          snap.docs.forEach((d) => {
-            map[d.id] = d.data().skills || {};
-          });
-          setSyllabusProgress(map);
-        }
+        const map = {};
+        snap.docs.forEach((d) => {
+          map[d.id] = d.data().skills || {};
+        });
+        setSyllabusProgress(map);
       },
       (err) => console.error('Syllabus sync error:', err)
     );
@@ -975,7 +629,7 @@ export default function App() {
     };
   }, [cloudUser, seed]);
 
-  // Keep localStorage cache updated as well
+  // Keep localStorage cache updated
   useEffect(() => saveToStorage('activeUserId', activeUserId), [activeUserId]);
   useEffect(() => saveToStorage('accounts', accounts), [accounts]);
   useEffect(() => saveToStorage('lessons', lessons), [lessons]);
@@ -1017,10 +671,9 @@ export default function App() {
   const [showGoogleGuideModal, setShowGoogleGuideModal] = useState(false);
   const [showCreateAccountModal, setShowCreateAccountModal] = useState(false);
   const [showInstructorAddLessonModal, setShowInstructorAddLessonModal] = useState(false);
-  const [selectedPupilForPlan, setSelectedPupilForPlan] = useState('pupil-sarah');
+  const [selectedPupilForPlan, setSelectedPupilForPlan] = useState('');
   const [copiedFeedUrl, setCopiedFeedUrl] = useState(false);
 
-  // Toast helper (Never uses alert() or confirm())
   const notify = (title, description, type = 'success') => {
     setToastNotification({ title, description, type, id: Date.now() });
     setTimeout(() => {
@@ -1028,7 +681,6 @@ export default function App() {
     }, 4000);
   };
 
-  // Derived Current User & Role (null when logged out)
   const currentUser = useMemo(() => {
     if (!activeUserId) return null;
     return accounts.find((a) => a.id === activeUserId) || null;
@@ -1037,21 +689,19 @@ export default function App() {
   const isInstructor = currentUser?.role === 'instructor';
   const pupilsList = useMemo(() => accounts.filter((a) => a.role === 'pupil'), [accounts]);
 
-  // Unread messages count for current user
   const unreadCount = useMemo(() => {
     if (!currentUser) return 0;
     return messages.filter((m) => m.toId === currentUser.id && !m.read).length;
   }, [messages, currentUser]);
 
   // ============================================================================
-  // SMART AVAILABILITY & DISTANCE BUFFER ENGINE FOR ANY DATE + PUPIL + DURATION
+  // SMART AVAILABILITY & DISTANCE BUFFER ENGINE
   // ============================================================================
   const computeSlotAvailability = (targetDate, pupilAccount, durationMins) => {
     const startLimit = timeToMinutes(settings.workStart || '07:00');
     const endLimit = timeToMinutes(settings.workEnd || '18:00');
     const slots = [];
 
-    // 1. Combine manual unavailability blocks + synced .ics work rota events (ignoring Google's "Free" status)
     const dayRotaBlocks = settings.secondaryShiftEnabled
       ? rotaEvents.filter((r) => r.date === targetDate)
       : [];
@@ -1061,20 +711,17 @@ export default function App() {
     ];
     const isAllDayBlocked = dayUnavailBlocks.some((u) => u.allDay);
 
-    // 2. Check Secondary Google Calendar recurring weekday shift fallback (if configured)
     const [y, m, d] = targetDate.split('-').map(Number);
-    const dayOfWeek = new Date(y, m - 1, d).getDay(); // 0=Sun, 1=Mon...
+    const dayOfWeek = new Date(y, m - 1, d).getDay();
     const hasSecondaryShift =
       settings.secondaryShiftEnabled &&
       Array.isArray(settings.secondaryShiftDays) &&
       settings.secondaryShiftDays.includes(dayOfWeek);
 
-    // 3. Active lessons on targetDate (confirmed or pending)
     const dayLessons = lessons
       .filter((l) => l.date === targetDate && (l.status === 'confirmed' || l.status === 'pending'))
       .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
 
-    // Generate 15-min candidate slots from 07:00 to 18:00
     for (let candStart = startLimit; candStart <= endLimit; candStart += 15) {
       const candEnd = candStart + durationMins;
       const timeLabel = minutesToTime(candStart);
@@ -1088,7 +735,6 @@ export default function App() {
         continue;
       }
 
-      // Check specific time unavailability blocks
       let blockedReason = null;
       for (const block of dayUnavailBlocks) {
         const bStart = timeToMinutes(block.startTime);
@@ -1099,7 +745,6 @@ export default function App() {
         }
       }
 
-      // Check Secondary Google Account Calendar Shift (e.g. 06:00 - 17:00)
       if (!blockedReason && hasSecondaryShift) {
         const sStart = timeToMinutes(settings.secondaryShiftStart || '06:00');
         const sEnd = timeToMinutes(settings.secondaryShiftEnd || '17:00');
@@ -1113,7 +758,6 @@ export default function App() {
         continue;
       }
 
-      // Evaluate against existing lessons + Distance & 10-min Write-Up Buffer!
       let conflictReason = null;
       let travelNote = null;
 
@@ -1121,7 +765,6 @@ export default function App() {
         const exStart = timeToMinutes(existing.startTime);
         const exEnd = exStart + existing.durationMins;
 
-        // Direct overlap check
         if (candStart < exEnd && candEnd > exStart) {
           conflictReason = `Booked (${existing.startTime}-${minutesToTime(exEnd)})`;
           break;
@@ -1130,10 +773,8 @@ export default function App() {
         const isSamePupil = pupilAccount && existing.pupilId === pupilAccount.id;
         const pupilLoc = pupilAccount?.postcode || 'PO19 - Chichester City Centre';
 
-        // Case A: Candidate slot is AFTER an existing lesson
         if (candStart >= exEnd) {
           if (isSamePupil && candStart === exEnd) {
-            // CONSECUTIVE SLOT EXCEPTION: Bypass distance formula if same pupil books back-to-back!
             travelNote = 'Consecutive slot with same pupil (0m travel gap)';
           } else {
             const metrics = calculateTravelMetrics(existing.dropoffLocation, pupilLoc);
@@ -1148,10 +789,8 @@ export default function App() {
           }
         }
 
-        // Case B: Candidate slot is BEFORE an existing lesson
         if (candEnd <= exStart) {
           if (isSamePupil && candEnd === exStart) {
-            // CONSECUTIVE SLOT EXCEPTION
             travelNote = 'Consecutive slot before existing lesson';
           } else {
             const metrics = calculateTravelMetrics(pupilLoc, existing.pickupLocation);
@@ -1180,12 +819,12 @@ export default function App() {
   };
 
   // ============================================================================
-  // CORE ACTIONS (BOOK, APPROVE, DECLINE, CANCEL, REMIND, MESSAGES, ACCOUNTS)
+  // CORE ACTIONS
   // ============================================================================
   const sendAutomatedMessage = (toId, toName, text, type = 'system') => {
     const newMsg = {
       id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      fromId: currentUser?.id || 'instructor-mark',
+      fromId: currentUser?.id || 'instructor-main',
       fromName: isInstructor ? 'Learn To Pass With Us' : (currentUser?.name || 'Pupil'),
       toId,
       toName,
@@ -1211,6 +850,9 @@ export default function App() {
   }) => {
     const status = autoConfirm ? 'confirmed' : 'pending';
     const defaultFocus = notes || 'Progressive syllabus driving & junction/roundabout control';
+    const instructorAccount = accounts.find((a) => a.role === 'instructor');
+    const instructorTargetId = instructorAccount?.id || 'instructor-main';
+    const instructorTargetName = instructorAccount?.name || 'Instructor';
 
     const newLesson = {
       id: `lesson-${Date.now()}`,
@@ -1243,8 +885,8 @@ export default function App() {
       notify('Lesson Added & Confirmed', `Added ${pupilAccount.name} on ${formatReadableDate(date)} at ${startTime}.`);
     } else {
       sendAutomatedMessage(
-        'instructor-mark',
-        'Mark (Instructor)',
+        instructorTargetId,
+        instructorTargetName,
         `New ${isOutOfHours ? 'OUT-OF-HOURS ' : ''}booking request from ${pupilAccount.name} for ${formatReadableDate(date)} at ${startTime} (${durationMins / 60}h) in ${pickupLocation}.`
       );
       notify(
@@ -1286,14 +928,16 @@ export default function App() {
     setDeclineReasonText('');
   };
 
-  // Cancel lesson + Smart Distance-Based Broadcast to reachable pupils!
   const handleCancelLesson = (lesson, cancelledBy = 'instructor') => {
+    const instructorAccount = accounts.find((a) => a.role === 'instructor');
+    const instructorTargetId = instructorAccount?.id || 'instructor-main';
+    const instructorTargetName = instructorAccount?.name || 'Instructor';
+
     setLessons((prev) =>
       prev.map((l) => (l.id === lesson.id ? { ...l, status: 'cancelled' } : l))
     );
     persistCloudDoc('lessons', lesson.id, { status: 'cancelled' });
 
-    // Notify the pupil whose lesson was cancelled
     if (cancelledBy === 'instructor') {
       sendAutomatedMessage(
         lesson.pupilId,
@@ -1302,13 +946,12 @@ export default function App() {
       );
     } else {
       sendAutomatedMessage(
-        'instructor-mark',
-        'Mark (Instructor)',
+        instructorTargetId,
+        instructorTargetName,
         `${lesson.pupilName} cancelled their lesson on ${formatReadableDate(lesson.date)} at ${lesson.startTime} (${lesson.pickupLocation}).`
       );
     }
 
-    // SMART CANCELLATION BROADCAST: Find all other active pupils reachable within ~11 miles
     const candidatePupils = pupilsList.filter((p) => p.id !== lesson.pupilId);
     let notifiedCount = 0;
 
@@ -1344,13 +987,17 @@ export default function App() {
   };
 
   const handlePupilConfirmAttendance = (lesson) => {
+    const instructorAccount = accounts.find((a) => a.role === 'instructor');
+    const instructorTargetId = instructorAccount?.id || 'instructor-main';
+    const instructorTargetName = instructorAccount?.name || 'Instructor';
+
     setLessons((prev) =>
       prev.map((l) => (l.id === lesson.id ? { ...l, pupilConfirmedAttendance: true } : l))
     );
     persistCloudDoc('lessons', lesson.id, { pupilConfirmedAttendance: true });
     sendAutomatedMessage(
-      'instructor-mark',
-      'Mark (Instructor)',
+      instructorTargetId,
+      instructorTargetName,
       `${lesson.pupilName} confirmed attendance for tomorrow's lesson (${formatReadableDate(lesson.date)} at ${lesson.startTime}).`
     );
     notify('Attendance Confirmed', 'Your instructor has been notified.');
@@ -1396,9 +1043,6 @@ export default function App() {
     setConfirmModal(null);
   };
 
-  // ============================================================================
-  // DEDICATED LOGIN & SIGN-UP GATE (BRIGHT WHITE INPUTS + CAPS LOCK DETECTION)
-  // ============================================================================
   if (!currentUser) {
     return (
       <>
@@ -1434,68 +1078,112 @@ export default function App() {
     );
   }
 
+  const navTabs = [
+    { id: 'dashboard', label: isInstructor ? 'Home' : 'Lessons' },
+    ...(isInstructor
+      ? [{ id: 'calendar_sync', label: 'Diary' }]
+      : []),
+    { id: 'syllabus', label: isInstructor ? 'Pupils' : 'Progress' },
+    {
+      id: 'messages',
+      label: 'Messages',
+      badge: unreadCount
+    }
+  ];
+
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col font-sans">
-      {/* ==================================================================== */}
-      {/* TOP NAVIGATION HEADER (INDIVIDUAL LOGGED-IN SESSION)                 */}
-      {/* ==================================================================== */}
       <header className="bg-zinc-950 text-white border-b border-zinc-800 sticky top-0 z-40 shadow-lg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
-          {/* Brand Logo */}
+          {/* Left: Brand Logo & Title */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-md shadow-emerald-950">
-              <Car className="w-6 h-6 text-white" />
+            <div className="w-10 h-10 rounded-xl bg-zinc-900 border-2 border-zinc-700 flex items-center justify-center shadow-md flex-shrink-0">
+              <span className="text-red-500 font-black text-xl leading-none">L</span>
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-base sm:text-lg font-extrabold tracking-tight text-white leading-none">
+                <h1 className="text-sm sm:text-base font-black tracking-wide uppercase text-white leading-tight">
                   Learn To Pass With Us
                 </h1>
-                <span className="hidden md:inline-block bg-amber-400 text-zinc-950 font-mono font-black text-[10px] px-1.5 py-0.5 rounded">
+                <span className="hidden lg:inline-block bg-amber-400 text-zinc-950 font-mono font-black text-[10px] px-1.5 py-0.5 rounded">
                   EN56 WXA
                 </span>
                 <span
-                  className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                    cloudReady
-                      ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-                      : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                  title={cloudReady ? 'Cloud Live Sync Active' : 'Connecting Cloud Sync...'}
+                  className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                    cloudReady ? 'bg-emerald-400 shadow-sm shadow-emerald-400' : 'bg-zinc-600'
                   }`}
-                >
-                  <Cloud className="w-3 h-3" />
-                  {cloudReady ? 'Cloud Live Sync' : 'Connecting Cloud...'}
-                </span>
+                />
               </div>
-              <p className="text-[11px] text-zinc-400 mt-0.5">
+              <p className="text-[11px] text-zinc-400 mt-0.5 hidden sm:block">
                 Chichester &amp; West Sussex Driving School
               </p>
             </div>
           </div>
 
-          {/* Authenticated User Badge & Sign Out */}
-          <div className="flex items-center gap-2 sm:gap-3">
-            <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-1.5">
-              <span
-                className={`text-[10px] uppercase font-black px-2 py-0.5 rounded-full ${
-                  isInstructor
-                    ? 'bg-amber-400 text-zinc-950'
-                    : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                }`}
-              >
-                {isInstructor ? 'Instructor' : 'Pupil'}
-              </span>
-              <span className="text-xs sm:text-sm font-bold text-white">{currentUser.name}</span>
-            </div>
+          {/* Center: Clean, Uniform Single-Row Navigation Links */}
+          <nav className="order-3 md:order-2 w-full md:w-auto flex items-center justify-center gap-1.5 sm:gap-2 pt-2 md:pt-0 border-t md:border-t-0 border-zinc-800/80">
+            <span
+              className={`hidden sm:inline-block text-[10px] uppercase font-black tracking-wider px-2.5 py-1.5 rounded-lg mr-1 ${
+                isInstructor
+                  ? 'bg-zinc-800 text-amber-400 border border-zinc-700'
+                  : 'bg-zinc-800 text-emerald-400 border border-zinc-700'
+              }`}
+            >
+              {isInstructor ? 'Instructor' : 'Pupil'}
+            </span>
 
+            {navTabs.map((tab) => {
+              const active = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`relative px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold uppercase tracking-wide transition cursor-pointer ${
+                    active
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-zinc-200 hover:text-white hover:bg-zinc-800/80'
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                  {tab.badge > 0 && (
+                    <span className="ml-1.5 inline-flex items-center justify-center bg-red-500 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full">
+                      {tab.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+
+          {/* Right: Universal Settings Cog & Sign Out */}
+          <div className="order-2 md:order-3 flex items-center gap-2 sm:gap-3">
             {isInstructor && (
               <button
                 onClick={() => setShowCreateAccountModal(true)}
-                className="inline-flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 text-xs font-bold px-3 py-2 rounded-xl transition"
-                title="Add New Pupil or Instructor Account"
+                title="Add New Pupil or Instructor"
+                className="inline-flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 text-xs font-bold px-2.5 py-2 rounded-xl transition cursor-pointer"
               >
-                <UserPlus className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="hidden md:inline">Add User</span>
+                <UserPlus className="w-4 h-4 text-emerald-400" />
+                <span className="hidden xl:inline">Add User</span>
               </button>
             )}
+
+            <button
+              onClick={() => setActiveTab('accounts')}
+              title="Account Settings"
+              aria-label="Account Settings"
+              className={`group flex flex-col items-center justify-center px-2.5 py-1.5 rounded-xl border transition cursor-pointer ${
+                activeTab === 'accounts'
+                  ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
+                  : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border-zinc-700'
+              }`}
+            >
+              <Settings className="w-4 h-4 transition-transform duration-300 group-hover:rotate-45" />
+              <span className="text-[9px] font-bold tracking-wide mt-0.5 leading-none">
+                Settings
+              </span>
+            </button>
 
             <button
               onClick={() => {
@@ -1503,58 +1191,18 @@ export default function App() {
                 setActiveTab('dashboard');
                 notify('Signed Out', 'You have been securely logged out.', 'info');
               }}
-              className="inline-flex items-center gap-1.5 bg-red-600/90 hover:bg-red-600 text-white text-xs font-bold px-3 py-2 rounded-xl transition shadow-sm"
+              title="Sign Out"
+              className="flex flex-col items-center justify-center px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-red-600/90 text-zinc-300 hover:text-white border border-zinc-700 hover:border-red-500 transition cursor-pointer"
             >
-              <LogOut className="w-3.5 h-3.5" />
-              <span>Sign Out</span>
+              <LogOut className="w-4 h-4" />
+              <span className="text-[9px] font-bold tracking-wide mt-0.5 leading-none">
+                Sign Out
+              </span>
             </button>
-          </div>
-        </div>
-
-        {/* Navigation Tabs */}
-        <div className="bg-zinc-900/90 border-t border-zinc-800/80">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 flex overflow-x-auto no-scrollbar gap-1 py-1.5">
-            {[
-              { id: 'dashboard', label: isInstructor ? 'Instructor Schedule & Requests' : 'My Lessons & Booking', icon: Calendar },
-              { id: 'syllabus', label: isInstructor ? 'Pupil Lesson Plans (DVSA)' : 'My Lesson Plan & Progress', icon: Award },
-              {
-                id: 'messages',
-                label: 'Messages & Alerts',
-                icon: MessageSquare,
-                badge: unreadCount
-              },
-              ...(isInstructor
-                ? [{ id: 'calendar_sync', label: 'Unavailability & Google Sync', icon: RefreshCw }]
-                : []),
-              { id: 'accounts', label: 'Account Settings', icon: Settings }
-            ].map((tab) => {
-              const Icon = tab.icon;
-              const active = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold whitespace-nowrap transition ${
-                    active
-                      ? 'bg-emerald-600 text-white shadow-sm'
-                      : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                  <span>{tab.label}</span>
-                  {tab.badge > 0 && (
-                    <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">
-                      {tab.badge}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
           </div>
         </div>
       </header>
 
-      {/* Toast Notification Banner */}
       {toastNotification && (
         <div className="fixed bottom-4 right-4 z-50 max-w-sm w-full bg-zinc-900 text-white border border-zinc-700 rounded-2xl shadow-2xl p-4 flex items-start gap-3 animate-fade-in">
           <div
@@ -1581,11 +1229,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ==================================================================== */}
-      {/* MAIN CONTENT AREA                                                    */}
-      {/* ==================================================================== */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
-        {/* Hero Vehicle Banner on Dashboard (With Real Car Photo Uploader) */}
         {activeTab === 'dashboard' && (
           <VWGolfGTIBadge
             customCarPhoto={customCarPhoto}
@@ -1603,9 +1247,6 @@ export default function App() {
           />
         )}
 
-        {/* ================================================================== */}
-        {/* TAB 1A: INSTRUCTOR DASHBOARD                                       */}
-        {/* ================================================================== */}
         {activeTab === 'dashboard' && isInstructor && (
           <InstructorDashboardView
             lessons={lessons}
@@ -1630,9 +1271,6 @@ export default function App() {
           />
         )}
 
-        {/* ================================================================== */}
-        {/* TAB 1B: PUPIL DASHBOARD & SMART BOOKING                            */}
-        {/* ================================================================== */}
         {activeTab === 'dashboard' && !isInstructor && (
           <PupilDashboardView
             pupil={currentUser}
@@ -1651,9 +1289,6 @@ export default function App() {
           />
         )}
 
-        {/* ================================================================== */}
-        {/* TAB 2: DVSA SYLLABUS & LESSON PROGRESSION FLOWCHART                */}
-        {/* ================================================================== */}
         {activeTab === 'syllabus' && (
           <SyllabusFlowchartView
             isInstructor={isInstructor}
@@ -1670,14 +1305,12 @@ export default function App() {
           />
         )}
 
-        {/* ================================================================== */}
-        {/* TAB 3: DIRECT MESSAGES & AUTOMATED SYSTEM NOTIFICATIONS            */}
-        {/* ================================================================== */}
         {activeTab === 'messages' && (
           <MessagingCenterView
             currentUser={currentUser}
             isInstructor={isInstructor}
             pupilsList={pupilsList}
+            accounts={accounts}
             messages={messages}
             setMessages={setMessages}
             onMarkRead={(msgId) => persistCloudDoc('messages', msgId, { read: true })}
@@ -1686,9 +1319,6 @@ export default function App() {
           />
         )}
 
-        {/* ================================================================== */}
-        {/* TAB 4: INSTRUCTOR UNAVAILABILITY & DUAL GOOGLE CALENDAR SYNC       */}
-        {/* ================================================================== */}
         {activeTab === 'calendar_sync' && isInstructor && (
           <CalendarSyncAndUnavailabilityView
             settings={settings}
@@ -1714,9 +1344,6 @@ export default function App() {
           />
         )}
 
-        {/* ================================================================== */}
-        {/* TAB 5: ACCOUNT SETTINGS & DELETION CONTROLS                        */}
-        {/* ================================================================== */}
         {activeTab === 'accounts' && (
           <AccountManagementView
             currentUser={currentUser}
@@ -1735,9 +1362,6 @@ export default function App() {
         )}
       </main>
 
-      {/* ==================================================================== */}
-      {/* MODAL: DECLINE LESSON WITH CUSTOM NOTE                               */}
-      {/* ==================================================================== */}
       {declineModalLesson && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
@@ -1770,16 +1394,13 @@ export default function App() {
                 onClick={handleDeclineLessonSubmit}
                 className="px-4 py-2 rounded-xl text-sm font-bold bg-red-600 hover:bg-red-700 text-white shadow-sm"
               >
-                Send Decline & Note
+                Send Decline &amp; Note
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ==================================================================== */}
-      {/* MODAL: INSTRUCTOR DIRECTLY ADD LESSON FOR PUPIL                      */}
-      {/* ==================================================================== */}
       {showInstructorAddLessonModal && (
         <InstructorAddLessonModal
           pupilsList={pupilsList}
@@ -1792,9 +1413,6 @@ export default function App() {
         />
       )}
 
-      {/* ==================================================================== */}
-      {/* MODAL: CREATE NEW PUPIL OR INSTRUCTOR ACCOUNT                        */}
-      {/* ==================================================================== */}
       {showCreateAccountModal && (
         <CreateAccountModal
           onClose={() => setShowCreateAccountModal(false)}
@@ -1807,9 +1425,6 @@ export default function App() {
         />
       )}
 
-      {/* ==================================================================== */}
-      {/* MODAL: STEP-BY-STEP GUIDE FOR 2ND GOOGLE CALENDAR (FREE ICAL SYNC)   */}
-      {/* ==================================================================== */}
       {showGoogleGuideModal && (
         <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
@@ -1828,12 +1443,12 @@ export default function App() {
 
             <div className="mt-4 space-y-3 text-sm text-slate-700 leading-relaxed">
               <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs">
-                <strong>Why this is the easiest &amp; £0 (completely free) method:</strong> Google provides a private read-only <strong>Secret iCal URL</strong> on every Google Calendar. You don&apos;t need to pay for Google Cloud APIs or share passwords—any shift you add to your other Google account (e.g. 6am–5pm work shift) automatically blocks out those hours here while leaving evening slots open for driving lessons!
+                <strong>Why this is the easiest &amp; £0 (completely free) method:</strong> Google provides a private read-only <strong>Secret iCal URL</strong> on every Google Calendar (or use your direct work rota <code className="bg-emerald-100 px-1 rounded">.ics</code> / <code className="bg-emerald-100 px-1 rounded">webcal://</code> link). Even if events show as &ldquo;Free&rdquo; in Google Calendar, this app blocks out every shift automatically!
               </div>
 
               <ol className="list-decimal pl-5 space-y-2.5 text-xs sm:text-sm">
                 <li>
-                  Open <strong>Google Calendar</strong> on a computer/browser logged into your <strong>other Google account</strong> (your 6am–5pm job calendar).
+                  Open <strong>Google Calendar</strong> on a computer/browser logged into your <strong>other Google account</strong> (or copy your work rota <code className="bg-slate-100 px-1.5 py-0.5 rounded text-xs">.ics</code> feed URL).
                 </li>
                 <li>
                   On the left sidebar under <strong>&ldquo;My calendars&rdquo;</strong>, hover over your calendar name, click the <strong>three dots (⋮)</strong>, and choose <strong>Settings and sharing</strong>.
@@ -1845,7 +1460,7 @@ export default function App() {
                   Copy the link labelled <strong>&ldquo;Secret address in iCal format&rdquo;</strong> (it ends in <code className="bg-slate-100 px-1.5 py-0.5 rounded text-xs">.ics</code>).
                 </li>
                 <li>
-                  Paste that link into the <strong>Secondary Google Account iCal Feed</strong> box in this app. Any busy events on that calendar (like 06:00–17:00 shifts) will automatically block driving lesson bookings during those exact hours!
+                  Paste that link into the <strong>Work Rota / 2nd Calendar Feed</strong> box in this app and click <strong>Sync Rota Now</strong>.
                 </li>
               </ol>
             </div>
@@ -1862,9 +1477,6 @@ export default function App() {
         </div>
       )}
 
-      {/* ==================================================================== */}
-      {/* MODAL: GENERIC CONFIRMATION DIALOG (REPLACES window.confirm)         */}
-      {/* ==================================================================== */}
       {confirmModal && (
         <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
@@ -1933,7 +1545,6 @@ function InstructorDashboardView({
     [lessons]
   );
 
-  // Calculate travel impact badge for each pending request
   const getTravelImpactBadge = (pendingLesson) => {
     const sameDayConfirmed = lessons
       .filter(
@@ -1977,7 +1588,6 @@ function InstructorDashboardView({
 
   return (
     <div className="space-y-6">
-      {/* Quick Action Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
         <div className="flex flex-wrap items-center gap-3">
           <div>
@@ -2000,11 +1610,13 @@ function InstructorDashboardView({
           <div className="h-8 w-px bg-slate-200 hidden sm:block" />
           <div>
             <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block">
-              2nd Google Cal Shift
+              Work Rota / 2nd Cal
             </span>
             <span className="text-sm font-extrabold text-indigo-600">
               {settings.secondaryShiftEnabled
-                ? `Active (${settings.secondaryShiftStart}-${settings.secondaryShiftEnd})`
+                ? settings.syncedRotaCount > 0
+                  ? `${settings.syncedRotaCount} Rota Shift(s) Synced`
+                  : `Active (${settings.secondaryShiftStart}-${settings.secondaryShiftEnd})`
                 : 'Off'}
             </span>
           </div>
@@ -2019,7 +1631,6 @@ function InstructorDashboardView({
         </button>
       </div>
 
-      {/* PENDING APPROVAL REQUESTS QUEUE */}
       <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-5 py-4 bg-amber-50/70 border-b border-amber-200/80 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -2052,7 +1663,7 @@ function InstructorDashboardView({
                       </span>
                       {req.isOutOfHours && (
                         <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border border-purple-300">
-                          ⚡ Early/Late Out-of-Hours Request
+                          Early/Late Out-of-Hours Request
                         </span>
                       )}
                     </div>
@@ -2069,7 +1680,6 @@ function InstructorDashboardView({
                       )}
                     </div>
 
-                    {/* Smart Distance Buffer Breakdown Pill */}
                     <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg border text-xs font-semibold ${impact.color}`}>
                       <Navigation className="w-3.5 h-3.5 flex-shrink-0" />
                       <span>{impact.label}</span>
@@ -2082,7 +1692,7 @@ function InstructorDashboardView({
                       className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold shadow-sm transition"
                     >
                       <CheckCircle2 className="w-4 h-4" />
-                      Confirm & Send Message
+                      Confirm &amp; Send Message
                     </button>
                     <button
                       onClick={() => onOpenDecline(req)}
@@ -2099,9 +1709,7 @@ function InstructorDashboardView({
         )}
       </section>
 
-      {/* DAILY SCHEDULE INSPECTOR & 24-HOUR REMINDER DISPATCH */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left 2 Columns: Day View & Lesson Focus Notes */}
         <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -2163,7 +1771,7 @@ function InstructorDashboardView({
                             </span>
                             {lesson.pupilConfirmedAttendance && (
                               <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
-                                ✓ Attendance Confirmed
+                                Attendance Confirmed
                               </span>
                             )}
                           </div>
@@ -2189,7 +1797,6 @@ function InstructorDashboardView({
                         </div>
                       </div>
 
-                      {/* Editable Next Lesson Focus Notes */}
                       <div className="mt-3 pt-3 border-t border-slate-200/80">
                         {editingNoteId === lesson.id ? (
                           <div className="flex flex-col sm:flex-row gap-2">
@@ -2235,7 +1842,6 @@ function InstructorDashboardView({
                       </div>
                     </div>
 
-                    {/* Visual Turnaround Connector between lessons */}
                     {nextBufferInfo && (
                       <div className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-slate-100 text-[11px] font-semibold text-slate-600">
                         <Navigation className="w-3.5 h-3.5 text-amber-600" />
@@ -2249,7 +1855,6 @@ function InstructorDashboardView({
           </div>
         </div>
 
-        {/* Right Column: 24-Hour Automated Reminder Queue */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
           <div className="flex items-center gap-2">
             <Bell className="w-5 h-5 text-emerald-600" />
@@ -2356,7 +1961,6 @@ function PupilDashboardView({
 
   return (
     <div className="space-y-6">
-      {/* 24-HOUR ATTENDANCE CONFIRMATION BANNER IF TRIGGERED */}
       {myConfirmedLessons
         .filter((l) => l.reminderSent && !l.pupilConfirmedAttendance)
         .map((remLesson) => (
@@ -2382,7 +1986,7 @@ function PupilDashboardView({
                 onClick={() => onConfirmAttendance(remLesson)}
                 className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold shadow-sm"
               >
-                ✓ Confirm Still Attending
+                Confirm Still Attending
               </button>
               <button
                 onClick={() => onCancelLesson(remLesson)}
@@ -2395,7 +1999,6 @@ function PupilDashboardView({
         ))}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* LEFT 7 COLS: SMART DISTANCE-AWARE LESSON BOOKER */}
         <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6 space-y-5">
           <div>
             <h2 className="text-lg font-extrabold text-slate-900">Book a Driving Lesson</h2>
@@ -2405,7 +2008,6 @@ function PupilDashboardView({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Date Picker */}
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">1. Select Date</label>
               <input
@@ -2420,7 +2022,6 @@ function PupilDashboardView({
               />
             </div>
 
-            {/* Duration Selector (1hr, 1.5hr, 2hr) */}
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">2. Lesson Duration</label>
               <div className="grid grid-cols-3 gap-2">
@@ -2449,7 +2050,6 @@ function PupilDashboardView({
             </div>
           </div>
 
-          {/* Pick-up Postcode / Area */}
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">
               3. Pick-Up &amp; Drop-Off Area (Used for travel buffer check)
@@ -2470,7 +2070,6 @@ function PupilDashboardView({
             </select>
           </div>
 
-          {/* Available 15-Min Slots Grid */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-bold text-slate-700">
@@ -2505,7 +2104,6 @@ function PupilDashboardView({
               })}
             </div>
 
-            {/* Selected Slot Travel Verification Info */}
             {selectedSlotTime && (
               <div className="mt-2.5 p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
@@ -2517,7 +2115,6 @@ function PupilDashboardView({
             )}
           </div>
 
-          {/* Notes on what pupil wants to practise */}
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">
               5. Notes / What would you like to work on? (Optional)
@@ -2553,7 +2150,6 @@ function PupilDashboardView({
             Request Lesson Slot (Pending Instructor Confirmation)
           </button>
 
-          {/* Request Earlier / Later Out-of-Hours Slot */}
           <div className="pt-3 border-t border-slate-100">
             <button
               type="button"
@@ -2601,9 +2197,7 @@ function PupilDashboardView({
           </div>
         </div>
 
-        {/* RIGHT 5 COLS: MY UPCOMING LESSONS + SYNC ALL LESSONS TO CALENDAR */}
         <div className="lg:col-span-5 space-y-5">
-          {/* Sync All Lessons Live Calendar Feed Card */}
           <div className="bg-zinc-900 text-white rounded-2xl p-5 shadow-md border border-zinc-800 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -2655,7 +2249,6 @@ function PupilDashboardView({
             </div>
           </div>
 
-          {/* Pupil's Lessons List */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
             <h3 className="text-base font-extrabold text-slate-900">
               My Bookings ({myLessons.length})
@@ -2709,7 +2302,6 @@ function PupilDashboardView({
                         </div>
                       )}
 
-                      {/* Shared Lesson Focus & Pupil Notes (Synced to Calendar Entries) */}
                       <div className="p-3 rounded-lg bg-white border border-slate-200 text-xs space-y-1.5">
                         <div>
                           <span className="font-bold text-slate-800">Instructor Focus: </span>
@@ -2756,7 +2348,6 @@ function PupilDashboardView({
                         )}
                       </div>
 
-                      {/* One-Off Add to Calendar + Cancel Actions */}
                       <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                         <div className="relative">
                           <button
@@ -2848,8 +2439,8 @@ function SyllabusFlowchartView({
   onPersistSyllabus,
   notify
 }) {
-  const targetPupilId = isInstructor ? selectedPupilId : currentUser.id;
-  const targetPupil = pupilsList.find((p) => p.id === targetPupilId) || pupilsList[0];
+  const targetPupilId = isInstructor ? (selectedPupilId || pupilsList[0]?.id) : currentUser.id;
+  const targetPupil = pupilsList.find((p) => p.id === targetPupilId) || (isInstructor ? pupilsList[0] : currentUser);
   const pupilSkills = (targetPupil && syllabusProgress[targetPupil.id]) || {};
 
   const readinessPercent = useMemo(() => {
@@ -2881,7 +2472,6 @@ function SyllabusFlowchartView({
 
   return (
     <div className="space-y-6">
-      {/* Header & Pupil Selector */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-lg font-extrabold text-slate-900 flex items-center gap-2">
@@ -2911,112 +2501,115 @@ function SyllabusFlowchartView({
         )}
       </div>
 
-      {/* Overall Test Readiness Meter */}
-      <div className="bg-zinc-900 text-white rounded-2xl p-5 shadow-md">
-        <div className="flex items-center justify-between mb-2">
-          <div>
-            <span className="text-xs uppercase tracking-wider font-bold text-zinc-400">
-              Test Readiness Score — {targetPupil?.name}
-            </span>
-            <h3 className="text-2xl font-black text-emerald-400">{readinessPercent}% Ready</h3>
-          </div>
-          {targetPupil?.testDate && (
-            <div className="text-right">
-              <span className="text-xs text-zinc-400 block">Practical Test Date</span>
-              <span className="text-sm font-extrabold text-amber-400">
-                {formatReadableDate(targetPupil.testDate)}
-              </span>
-            </div>
-          )}
+      {isInstructor && pupilsList.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-sm text-slate-500">
+          No pupils registered yet. Once a pupil signs up or you add one, their DVSA Lesson Plan will appear here.
         </div>
-        <div className="w-full h-3 bg-zinc-800 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-amber-500 via-emerald-500 to-teal-400 transition-all duration-500"
-            style={{ width: `${readinessPercent}%` }}
-          />
-        </div>
-      </div>
-
-      {/* Visual Flowchart Nodes */}
-      <div className="space-y-3">
-        {DVSA_SYLLABUS_SKILLS.map((skill, index) => {
-          const entry = pupilSkills[skill.id] || { level: 0, note: '' };
-          const levelMeta = SKILL_LEVELS[entry.level] || SKILL_LEVELS[0];
-
-          return (
-            <div key={skill.id} className="relative">
-              <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                <div className="flex items-start gap-3.5">
-                  <div
-                    className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black text-white flex-shrink-0 mt-0.5 ${levelMeta.dot}`}
-                  >
-                    {index + 1}
-                  </div>
-                  <div>
-                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
-                      {skill.category}
-                    </span>
-                    <h4 className="text-sm sm:text-base font-extrabold text-slate-900">{skill.title}</h4>
-                    <p className="text-xs text-slate-500 mt-0.5">{skill.desc}</p>
-
-                    {/* Instructor Note for this Syllabus Node */}
-                    {isInstructor ? (
-                      <div className="mt-2 flex items-center gap-2">
-                        <input
-                          type="text"
-                          defaultValue={entry.note}
-                          onBlur={(e) => {
-                            if (e.target.value !== entry.note) {
-                              handleUpdateSkill(skill.id, entry.level, e.target.value);
-                            }
-                          }}
-                          placeholder="Add instructor progress note..."
-                          className="w-full sm:w-80 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-800 focus:border-emerald-500 focus:outline-none"
-                        />
-                      </div>
-                    ) : (
-                      entry.note && (
-                        <p className="mt-1.5 text-xs font-medium text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg inline-block">
-                          Instructor Note: {entry.note}
-                        </p>
-                      )
-                    )}
-                  </div>
-                </div>
-
-                {/* Progression Stage Selector */}
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {SKILL_LEVELS.map((lvl) => {
-                    const active = entry.level === lvl.value;
-                    return (
-                      <button
-                        key={lvl.value}
-                        type="button"
-                        disabled={!isInstructor}
-                        onClick={() => handleUpdateSkill(skill.id, lvl.value, entry.note)}
-                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold border transition ${
-                          active
-                            ? `${lvl.color} ring-2 ring-offset-1 ring-slate-300`
-                            : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
-                        } ${!isInstructor ? 'cursor-default' : 'cursor-pointer'}`}
-                      >
-                        {lvl.label}
-                      </button>
-                    );
-                  })}
-                </div>
+      ) : (
+        <>
+          <div className="bg-zinc-900 text-white rounded-2xl p-5 shadow-md">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <span className="text-xs uppercase tracking-wider font-bold text-zinc-400">
+                  Test Readiness Score — {targetPupil?.name || 'Pupil'}
+                </span>
+                <h3 className="text-2xl font-black text-emerald-400">{readinessPercent}% Ready</h3>
               </div>
-
-              {/* Downward Flowchart Arrow Connector */}
-              {index < DVSA_SYLLABUS_SKILLS.length - 1 && (
-                <div className="flex justify-center my-1">
-                  <div className="w-0.5 h-4 bg-slate-300" />
+              {targetPupil?.testDate && (
+                <div className="text-right">
+                  <span className="text-xs text-zinc-400 block">Practical Test Date</span>
+                  <span className="text-sm font-extrabold text-amber-400">
+                    {formatReadableDate(targetPupil.testDate)}
+                  </span>
                 </div>
               )}
             </div>
-          );
-        })}
-      </div>
+            <div className="w-full h-3 bg-zinc-800 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-amber-500 via-emerald-500 to-teal-400 transition-all duration-500"
+                style={{ width: `${readinessPercent}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {DVSA_SYLLABUS_SKILLS.map((skill, index) => {
+              const entry = pupilSkills[skill.id] || { level: 0, note: '' };
+              const levelMeta = SKILL_LEVELS[entry.level] || SKILL_LEVELS[0];
+
+              return (
+                <div key={skill.id} className="relative">
+                  <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div className="flex items-start gap-3.5">
+                      <div
+                        className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black text-white flex-shrink-0 mt-0.5 ${levelMeta.dot}`}
+                      >
+                        {index + 1}
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
+                          {skill.category}
+                        </span>
+                        <h4 className="text-sm sm:text-base font-extrabold text-slate-900">{skill.title}</h4>
+                        <p className="text-xs text-slate-500 mt-0.5">{skill.desc}</p>
+
+                        {isInstructor ? (
+                          <div className="mt-2 flex items-center gap-2">
+                            <input
+                              type="text"
+                              defaultValue={entry.note}
+                              onBlur={(e) => {
+                                if (e.target.value !== entry.note) {
+                                  handleUpdateSkill(skill.id, entry.level, e.target.value);
+                                }
+                              }}
+                              placeholder="Add instructor progress note..."
+                              className="w-full sm:w-80 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-800 focus:border-emerald-500 focus:outline-none"
+                            />
+                          </div>
+                        ) : (
+                          entry.note && (
+                            <p className="mt-1.5 text-xs font-medium text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg inline-block">
+                              Instructor Note: {entry.note}
+                            </p>
+                          )
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {SKILL_LEVELS.map((lvl) => {
+                        const active = entry.level === lvl.value;
+                        return (
+                          <button
+                            key={lvl.value}
+                            type="button"
+                            disabled={!isInstructor}
+                            onClick={() => handleUpdateSkill(skill.id, lvl.value, entry.note)}
+                            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold border transition ${
+                              active
+                                ? `${lvl.color} ring-2 ring-offset-1 ring-slate-300`
+                                : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+                            } ${!isInstructor ? 'cursor-default' : 'cursor-pointer'}`}
+                          >
+                            {lvl.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {index < DVSA_SYLLABUS_SKILLS.length - 1 && (
+                    <div className="flex justify-center my-1">
+                      <div className="w-0.5 h-4 bg-slate-300" />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -3028,22 +2621,31 @@ function MessagingCenterView({
   currentUser,
   isInstructor,
   pupilsList,
+  accounts = [],
   messages,
   setMessages,
   onMarkRead,
   onSendMessage,
   notify
 }) {
+  const instructorAccount = accounts.find((a) => a.role === 'instructor');
   const [recipientId, setRecipientId] = useState(
-    isInstructor ? pupilsList[0]?.id || 'pupil-sarah' : 'instructor-mark'
+    isInstructor ? pupilsList[0]?.id || '' : instructorAccount?.id || 'instructor-main'
   );
   const [text, setText] = useState('');
+
+  useEffect(() => {
+    if (isInstructor && !recipientId && pupilsList[0]?.id) {
+      setRecipientId(pupilsList[0].id);
+    } else if (!isInstructor && instructorAccount?.id) {
+      setRecipientId(instructorAccount.id);
+    }
+  }, [isInstructor, pupilsList, instructorAccount, recipientId]);
 
   const myMessages = useMemo(() => {
     return messages.filter((m) => m.toId === currentUser.id || m.fromId === currentUser.id);
   }, [messages, currentUser.id]);
 
-  // Mark incoming messages as read when opened
   useEffect(() => {
     const unread = myMessages.filter((m) => m.toId === currentUser.id && !m.read);
     if (unread.length > 0) {
@@ -3056,10 +2658,10 @@ function MessagingCenterView({
 
   const handleSend = (e) => {
     e.preventDefault();
-    if (!text.trim()) return;
+    if (!text.trim() || !recipientId) return;
     const targetName = isInstructor
       ? pupilsList.find((p) => p.id === recipientId)?.name || 'Pupil'
-      : 'Mark (Instructor)';
+      : instructorAccount?.name || 'Instructor';
 
     onSendMessage(recipientId, targetName, text.trim(), 'direct');
     setText('');
@@ -3068,7 +2670,6 @@ function MessagingCenterView({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      {/* Compose Box */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4 h-fit">
         <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
           <Send className="w-4 h-4 text-emerald-600" />
@@ -3084,16 +2685,20 @@ function MessagingCenterView({
                 onChange={(e) => setRecipientId(e.target.value)}
                 className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold bg-white text-slate-900"
               >
-                {pupilsList.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
+                {pupilsList.length === 0 ? (
+                  <option value="">No pupils registered yet</option>
+                ) : (
+                  pupilsList.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))
+                )}
               </select>
             </div>
           ) : (
             <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700">
-              To: <strong>Learn To Pass With Us (Instructor)</strong>
+              To: <strong>Learn To Pass With Us ({instructorAccount?.name || 'Instructor'})</strong>
             </div>
           )}
 
@@ -3110,14 +2715,14 @@ function MessagingCenterView({
 
           <button
             type="submit"
-            className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-sm"
+            disabled={!recipientId}
+            className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-sm font-bold shadow-sm"
           >
             Send Message
           </button>
         </form>
       </div>
 
-      {/* Message Feed */}
       <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-3">
         <h3 className="text-base font-extrabold text-slate-900">
           Inbox &amp; Automated Booking Notifications ({myMessages.length})
@@ -3206,20 +2811,18 @@ function CalendarSyncAndUnavailabilityView({
       return;
     }
 
-    // Convert webcal:// to https:// so browser fetch can retrieve it
     const httpUrl = cleanUrl.replace(/^webcal:\/\//i, 'https://');
     setIsSyncingRota(true);
 
     try {
       let icsContent = '';
-      // Attempt direct fetch first, then fallback to public CORS relay if the rota server blocks cross-origin requests
       try {
         const directRes = await fetch(httpUrl);
         if (directRes.ok) {
           icsContent = await directRes.text();
         }
       } catch (_) {
-        // Ignore direct CORS error and try proxy relay below
+        // Fallback to CORS relay below
       }
 
       if (!icsContent || !icsContent.includes('BEGIN:VCALENDAR')) {
@@ -3307,7 +2910,6 @@ function CalendarSyncAndUnavailabilityView({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* LEFT: HOLIDAYS & SPECIFIC-TIME UNAVAILABILITY */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-5">
         <div>
           <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
@@ -3386,7 +2988,6 @@ function CalendarSyncAndUnavailabilityView({
           </button>
         </form>
 
-        {/* Active Blocks List */}
         <div className="space-y-2">
           <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
             Active Blocked Periods ({unavailability.length})
@@ -3419,7 +3020,6 @@ function CalendarSyncAndUnavailabilityView({
         </div>
       </div>
 
-      {/* RIGHT: DUAL GOOGLE CALENDAR INTEGRATION & WORKING HOURS */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-5">
         <div className="flex items-start justify-between gap-2">
           <div>
@@ -3428,7 +3028,7 @@ function CalendarSyncAndUnavailabilityView({
               Dual Google Calendar &amp; Working Hours
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Sync your primary driving calendar + read busy shifts from your other Google account.
+              Sync your primary driving calendar + read busy shifts from your other Google account or work rota.
             </p>
           </div>
           <button
@@ -3441,7 +3041,6 @@ function CalendarSyncAndUnavailabilityView({
         </div>
 
         <form onSubmit={handleSaveSettings} className="space-y-4">
-          {/* Default First & Last Lesson Times */}
           <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
             <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700">
               Standard Driving Day Hours
@@ -3468,7 +3067,6 @@ function CalendarSyncAndUnavailabilityView({
             </div>
           </div>
 
-          {/* Secondary Google Account Read-Only Private iCal Feed */}
           <div className="p-4 rounded-xl bg-indigo-50/60 border border-indigo-200 space-y-3">
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-extrabold uppercase tracking-wider text-indigo-950">
@@ -3513,7 +3111,7 @@ function CalendarSyncAndUnavailabilityView({
               </div>
               {rotaEvents.length > 0 && (
                 <p className="text-[11px] font-bold text-emerald-700 mt-1.5">
-                  ✓ {rotaEvents.length} work rota shift(s) actively blocking availability
+                  {rotaEvents.length} work rota shift(s) actively blocking availability
                   {settings.lastRotaSyncAt
                     ? ` (Last synced: ${new Date(settings.lastRotaSyncAt).toLocaleString('en-GB', {
                         day: 'numeric',
@@ -3614,7 +3212,6 @@ function AccountManagementView({ currentUser, isInstructor, accounts, onOpenCrea
         </button>
       </div>
 
-      {/* Current User Self-Delete Card */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full">
@@ -3635,7 +3232,6 @@ function AccountManagementView({ currentUser, isInstructor, accounts, onOpenCrea
         </button>
       </div>
 
-      {/* Instructor-Only Directory of All Pupil & Instructor Accounts */}
       {isInstructor && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100">
@@ -3726,11 +3322,15 @@ function InstructorAddLessonModal({ pupilsList, defaultDate, onClose, onCreate }
               onChange={(e) => setPupilId(e.target.value)}
               className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold bg-white text-slate-900"
             >
-              {pupilsList.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({p.postcode.split('-')[0].trim()})
-                </option>
-              ))}
+              {pupilsList.length === 0 ? (
+                <option value="">No pupils registered yet</option>
+              ) : (
+                pupilsList.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.postcode.split('-')[0].trim()})
+                  </option>
+                ))
+              )}
             </select>
           </div>
 
@@ -3790,7 +3390,8 @@ function InstructorAddLessonModal({ pupilsList, defaultDate, onClose, onCreate }
             </button>
             <button
               type="submit"
-              className="px-4 py-2 rounded-xl text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
+              disabled={!selectedPupil}
+              className="px-4 py-2 rounded-xl text-sm font-bold bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white"
             >
               Confirm &amp; Notify Pupil
             </button>
@@ -3805,7 +3406,7 @@ function InstructorAddLessonModal({ pupilsList, defaultDate, onClose, onCreate }
 // DEDICATED LOGIN & PUPIL SIGN-UP PORTAL (BRIGHT LIGHT THEME + CAPS LOCK ALERT)
 // ============================================================================
 function AuthPortalView({ accounts, customCarPhoto, cloudReady, onLoginSuccess, onRegisterAccount }) {
-  const [mode, setMode] = useState('login'); // 'login' | 'register'
+  const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -3817,7 +3418,6 @@ function AuthPortalView({ accounts, customCarPhoto, cloudReady, onLoginSuccess, 
   const [instructorCode, setInstructorCode] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
-  // Detect Caps Lock whenever user types or clicks inside password / code fields
   const checkCapsLock = (e) => {
     if (e && typeof e.getModifierState === 'function') {
       setCapsLockOn(e.getModifierState('CapsLock'));
@@ -3897,13 +3497,11 @@ function AuthPortalView({ accounts, customCarPhoto, cloudReady, onLoginSuccess, 
     onRegisterAccount(newAcc);
   };
 
-  // Force crisp white background & dark text on all form fields (even against browser dark mode/autofill)
   const lightInputClass =
     'w-full rounded-xl border border-slate-300 bg-white text-slate-900 placeholder-slate-400 px-3.5 py-2.5 text-sm shadow-sm focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/30 focus:outline-none [color-scheme:light]';
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col justify-between [color-scheme:light]">
-      {/* Top Bar */}
       <header className="bg-white border-b border-slate-200 px-4 sm:px-8 py-4 shadow-sm">
         <div className="max-w-6xl w-full mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -3931,14 +3529,12 @@ function AuthPortalView({ accounts, customCarPhoto, cloudReady, onLoginSuccess, 
             }`}
           >
             <Cloud className="w-3.5 h-3.5" />
-            {cloudReady ? 'Live Booking Portal' : 'Connecting...'}
+            {cloudReady ? 'Live Booking Portal' : 'Ready to Sign In'}
           </span>
         </div>
       </header>
 
-      {/* Main Split Showcase & Login Card */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-8 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
-        {/* Left 7 Cols: Driving School Hero & Car Showcase */}
         <div className="lg:col-span-7 space-y-6">
           <div className="space-y-3">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold uppercase tracking-wider">
@@ -3955,9 +3551,7 @@ function AuthPortalView({ accounts, customCarPhoto, cloudReady, onLoginSuccess, 
           <VWGolfGTIBadge customCarPhoto={customCarPhoto} compact={false} />
         </div>
 
-        {/* Right 5 Cols: Clean Light Login / Register Card */}
         <div className="lg:col-span-5 bg-white text-slate-900 rounded-3xl p-6 sm:p-8 shadow-xl border border-slate-200">
-          {/* Mode Switcher Tabs */}
           <div className="grid grid-cols-2 gap-1.5 bg-slate-100 p-1 rounded-2xl mb-6 border border-slate-200/80">
             <button
               type="button"
@@ -3996,7 +3590,6 @@ function AuthPortalView({ accounts, customCarPhoto, cloudReady, onLoginSuccess, 
             </div>
           )}
 
-          {/* CAPS LOCK WARNING BANNER */}
           {capsLockOn && (
             <div className="mb-4 p-3 rounded-xl bg-amber-50 border-2 border-amber-400 text-xs font-bold text-amber-900 flex items-center gap-2 shadow-sm">
               <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
