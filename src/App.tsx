@@ -3142,7 +3142,8 @@ function CalendarSyncAndUnavailabilityView({
   notify
 }) {
   const [title, setTitle] = useState('');
-  const [date, setDate] = useState(getUpcomingDateStr(2));
+  const [dateFrom, setDateFrom] = useState(getUpcomingDateStr(2));
+  const [dateTo, setDateTo] = useState(getUpcomingDateStr(2));
   const [allDay, setAllDay] = useState(true);
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('13:00');
@@ -3281,24 +3282,48 @@ function CalendarSyncAndUnavailabilityView({
 
   const handleAddUnavailability = (e) => {
     e.preventDefault();
-    const newBlock = {
-      id: `unavail-${Date.now()}`,
-      title: title.trim() || (allDay ? 'Holiday / Day Off' : 'Personal Appointment'),
-      date,
-      allDay,
-      startTime: allDay ? '00:00' : startTime,
-      endTime: allDay ? '23:59' : endTime,
-      source: 'manual'
-    };
-    setUnavailability((prev) => [...prev, newBlock]);
-    onAddCloudUnavail?.(newBlock);
-    setTitle('');
-    notify('Unavailability Added', 'Those hours are now blocked from pupil bookings.');
-  };
+    const startStr = dateFrom || getUpcomingDateStr(2);
+    const endStr = dateTo && dateTo >= startStr ? dateTo : startStr;
 
-  const toggleShiftDay = (dayIdx) => {
-    setShiftDays((prev) =>
-      prev.includes(dayIdx) ? prev.filter((d) => d !== dayIdx) : [...prev, dayIdx]
+    const [sy, sm, sd] = startStr.split('-').map(Number);
+    const [ey, em, ed] = endStr.split('-').map(Number);
+    const cursor = new Date(sy, sm - 1, sd);
+    const endDt = new Date(ey, em - 1, ed);
+
+    const newBlocks = [];
+    let safetyDays = 0;
+
+    while (cursor <= endDt && safetyDays < 90) {
+      const y = cursor.getFullYear();
+      const m = String(cursor.getMonth() + 1).padStart(2, '0');
+      const d = String(cursor.getDate()).padStart(2, '0');
+      const dayStr = `${y}-${m}-${d}`;
+
+      const block = {
+        id: `unavail-${dayStr}-${Date.now()}-${safetyDays}`,
+        title: title.trim() || (allDay ? 'Holiday / Day Off' : 'Personal Appointment'),
+        date: dayStr,
+        allDay,
+        startTime: allDay ? '00:00' : startTime,
+        endTime: allDay ? '23:59' : endTime,
+        source: 'manual'
+      };
+      newBlocks.push(block);
+      onAddCloudUnavail?.(block);
+
+      cursor.setDate(cursor.getDate() + 1);
+      safetyDays++;
+    }
+
+    setUnavailability((prev) => [...prev, ...newBlocks]);
+    setTitle('');
+    notify(
+      newBlocks.length > 1
+        ? `${newBlocks.length} Days Blocked Out`
+        : 'Unavailability Added',
+      newBlocks.length > 1
+        ? `Blocked ${formatReadableDate(startStr)} to ${formatReadableDate(endStr)} from pupil bookings.`
+        : 'Those hours are now blocked from pupil bookings.'
     );
   };
 
@@ -3327,28 +3352,44 @@ function CalendarSyncAndUnavailabilityView({
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Date</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">From Date</label>
               <input
                 type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
+                value={dateFrom}
+                onChange={(e) => {
+                  setDateFrom(e.target.value);
+                  if (!dateTo || e.target.value > dateTo) {
+                    setDateTo(e.target.value);
+                  }
+                }}
                 className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900"
               />
             </div>
 
-            <div className="pt-4">
-              <label className="inline-flex items-center gap-2 cursor-pointer text-sm font-bold text-slate-800">
-                <input
-                  type="checkbox"
-                  checked={allDay}
-                  onChange={(e) => setAllDay(e.target.checked)}
-                  className="w-4 h-4 rounded text-emerald-600"
-                />
-                All Day Unavailable
-              </label>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">To Date</label>
+              <input
+                type="date"
+                value={dateTo}
+                min={dateFrom}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900"
+              />
             </div>
+          </div>
+
+          <div>
+            <label className="inline-flex items-center gap-2 cursor-pointer text-sm font-bold text-slate-800">
+              <input
+                type="checkbox"
+                checked={allDay}
+                onChange={(e) => setAllDay(e.target.checked)}
+                className="w-4 h-4 rounded text-emerald-600"
+              />
+              All Day Unavailable
+            </label>
           </div>
 
           {!allDay && (
