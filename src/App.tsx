@@ -848,17 +848,25 @@ export default function App() {
       }
 
       let blockedReason = null;
-      // Add 15m travel buffer around work rota shifts so lessons can be booked around shifts safely
+      // Add 1-hour (60m) travel/prep buffer before & after work rota shifts
       for (const block of dayUnavailBlocks) {
         const isRota = String(block.id || '').startsWith('rota-');
-        const shiftPadding = isRota ? 15 : 0;
+        const shiftPadding = isRota ? 60 : 0;
         const bStart = Math.max(0, timeToMinutes(block.startTime) - shiftPadding);
         const bEnd = Math.min(24 * 60, timeToMinutes(block.endTime) + shiftPadding);
         if (candStart < bEnd && candEnd > bStart) {
           blockedReason = isRota
-            ? `Unavailable: Work Rota Shift (${block.startTime}–${block.endTime})`
+            ? `Unavailable: Work Rota Shift + 1hr buffer (${block.startTime}–${block.endTime})`
             : `Blocked: ${block.title} (${block.startTime}–${block.endTime})`;
           break;
+        }
+      }
+
+      if (!blockedReason && hasSecondaryShift) {
+        const sStart = Math.max(0, timeToMinutes(settings.secondaryShiftStart || '06:00') - 60);
+        const sEnd = Math.min(24 * 60, timeToMinutes(settings.secondaryShiftEnd || '17:00') + 60);
+        if (candStart < sEnd && candEnd > sStart) {
+          blockedReason = `Unavailable: Work Shift + 1hr buffer (${settings.secondaryShiftStart}–${settings.secondaryShiftEnd})`;
         }
       }
 
@@ -2147,14 +2155,6 @@ function PupilDashboardView({
     [myLessons]
   );
 
-  const dayBlockedWindows = useMemo(() => {
-    const blocks = [
-      ...unavailability.filter((u) => u.date === selectedDate),
-      ...rotaEvents.filter((r) => r.date === selectedDate)
-    ];
-    return blocks;
-  }, [unavailability, rotaEvents, selectedDate]);
-
   const computedSlots = useMemo(() => {
     return computeSlotAvailability(
       selectedDate,
@@ -2287,19 +2287,6 @@ function PupilDashboardView({
                 {computedSlots.filter((s) => s.available).length} slots open
               </span>
             </div>
-
-            {dayBlockedWindows.length > 0 && (
-              <div className="mb-2.5 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900 space-y-1">
-                <span className="font-extrabold block">
-                  Instructor Unavailable Windows on {formatReadableDate(selectedDate)}:
-                </span>
-                {dayBlockedWindows.map((b) => (
-                  <span key={b.id} className="block font-medium">
-                    • {b.allDay ? 'Unavailable All Day' : `${b.startTime} – ${b.endTime}`} (slots around this window remain open)
-                  </span>
-                ))}
-              </div>
-            )}
 
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-60 overflow-y-auto pr-1">
               {computedSlots.map((slot) => {
