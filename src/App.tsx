@@ -239,6 +239,45 @@ function parseICSFeedEvents(icsText) {
   const blocks = unfolded.split('BEGIN:VEVENT').slice(1);
   const results = [];
 
+  const formatLocalDate = (dt) =>
+    `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+  const formatLocalTime = (dt) =>
+    `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+
+  const parseICSTimestamp = (rawVal) => {
+    const cleaned = (rawVal || '').trim();
+    if (cleaned.length === 8) {
+      const y = Number(cleaned.slice(0, 4));
+      const mo = Number(cleaned.slice(4, 6)) - 1;
+      const d = Number(cleaned.slice(6, 8));
+      return {
+        date: `${cleaned.slice(0, 4)}-${cleaned.slice(4, 6)}-${cleaned.slice(6, 8)}`,
+        time: '00:00',
+        allDay: true,
+        jsDate: new Date(y, mo, d, 0, 0, 0)
+      };
+    }
+    const match = cleaned.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})?(Z)?$/i);
+    if (!match) return null;
+    const [, y, mo, d, h, mi, s = '00', isUtc] = match;
+    if (isUtc) {
+      const dt = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s)));
+      return {
+        date: formatLocalDate(dt),
+        time: formatLocalTime(dt),
+        allDay: false,
+        jsDate: dt
+      };
+    }
+    const dt = new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s));
+    return {
+      date: `${y}-${mo}-${d}`,
+      time: `${h}:${mi}`,
+      allDay: false,
+      jsDate: dt
+    };
+  };
+
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i].split('END:VEVENT')[0];
     const summaryMatch = block.match(/SUMMARY(?:;[^:]*)?:([^\r\n]+)/);
@@ -246,32 +285,58 @@ function parseICSFeedEvents(icsText) {
     const dtEndMatch = block.match(/DTEND(?:;[^:]*)?:([^\r\n]+)/);
 
     if (!dtStartMatch) continue;
-    const rawStart = dtStartMatch[1].trim();
-    const rawEnd = dtEndMatch ? dtEndMatch[1].trim() : rawStart;
-    const title = summaryMatch ? summaryMatch[1].trim() : 'Work Rota Shift';
+    const startParsed = parseICSTimestamp(dtStartMatch[1]);
+    if (!startParsed) continue;
+    const endParsed = dtEndMatch ? parseICSTimestamp(dtEndMatch[1]) : null;
+    const title = summaryMatch ? summaryMatch[1].trim() : 'Coach Driver Rota Shift';
 
-    if (rawStart.length === 8) {
-      const date = `${rawStart.slice(0, 4)}-${rawStart.slice(4, 6)}-${rawStart.slice(6, 8)}`;
+    if (startParsed.allDay) {
+      const startDt = startParsed.jsDate;
+      const endDt = endParsed?.jsDate && endParsed.jsDate > startDt
+        ? endParsed.jsDate
+        : new Date(startDt.getFullYear(), startDt.getMonth(), startDt.getDate() + 1);
+      const cursor = new Date(startDt);
+      let daySpanIdx = 0;
+      while (cursor < endDt && daySpanIdx < 30) {
+        results.push({
+          id: `rota-${formatLocalDate(cursor)}-${i}-${daySpanIdx}`,
+          title,
+          date: formatLocalDate(cursor),
+          allDay: true,
+          startTime: '00:00',
+          endTime: '23:59'
+        });
+        cursor.setDate(cursor.getDate() + 1);
+        daySpanIdx++;
+      }
+    } else if (endParsed && endParsed.date !== startParsed.date && endParsed.jsDate > startParsed.jsDate) {
+      // Split overnight / multi-day shifts across midnight so both days block properly
       results.push({
-        id: `rota-${date}-${i}`,
+        id: `rota-${startParsed.date}-${startParsed.time}-${i}-a`,
         title,
-        date,
-        allDay: true,
-        startTime: '00:00',
+        date: startParsed.date,
+        allDay: false,
+        startTime: startParsed.time,
         endTime: '23:59'
       });
-    } else if (rawStart.length >= 13) {
-      const date = `${rawStart.slice(0, 4)}-${rawStart.slice(4, 6)}-${rawStart.slice(6, 8)}`;
-      const startTime = `${rawStart.slice(9, 11)}:${rawStart.slice(11, 13)}`;
-      const endTime =
-        rawEnd.length >= 13 ? `${rawEnd.slice(9, 11)}:${rawEnd.slice(11, 13)}` : '17:00';
+      if (endParsed.time !== '00:00') {
+        results.push({
+          id: `rota-${endParsed.date}-0000-${i}-b`,
+          title,
+          date: endParsed.date,
+          allDay: false,
+          startTime: '00:00',
+          endTime: endParsed.time
+        });
+      }
+    } else {
       results.push({
-        id: `rota-${date}-${startTime}-${i}`,
+        id: `rota-${startParsed.date}-${startParsed.time}-${i}`,
         title,
-        date,
+        date: startParsed.date,
         allDay: false,
-        startTime,
-        endTime
+        startTime: startParsed.time,
+        endTime: endParsed ? endParsed.time : '17:00'
       });
     }
   }
@@ -1957,8 +2022,6 @@ function PupilDashboardView({
     );
   }, [selectedDate, pupil, pickupLocation, durationMins, lessons, settings]);
 
-  const liveSubscriptionFeedUrl = `webcal://learntopasswithus.co.uk/api/calendar-feed/${pupil.id}/lessons.ics`;
-
   return (
     <div className="space-y-6">
       {myConfirmedLessons
@@ -2198,54 +2261,60 @@ function PupilDashboardView({
         </div>
 
         <div className="lg:col-span-5 space-y-5">
-          <div className="bg-zinc-900 text-white rounded-2xl p-5 shadow-md border border-zinc-800 space-y-3">
+          <div className="bg-zinc-900 text-white rounded-2xl p-5 shadow-md border border-zinc-800 space-y-3.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <CalendarPlus className="w-5 h-5 text-emerald-400" />
-                <h3 className="text-sm font-extrabold">Sync All Lessons to Your Phone</h3>
+                <h3 className="text-sm font-extrabold">Sync Lessons to Your Phone</h3>
               </div>
               <span className="text-[10px] uppercase tracking-wider font-bold bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full">
-                Auto-Updates
+                iOS • Google • Outlook
               </span>
             </div>
             <p className="text-xs text-zinc-300 leading-relaxed">
-              Subscribe once so any confirmed lessons, time changes, or lesson focus notes automatically sync to{' '}
-              <strong>Apple iOS, Google Calendar, Outlook, or Yahoo</strong>.
+              Add all your confirmed lessons—complete with pick-up locations and instructor focus notes—straight to your phone&apos;s calendar:
             </p>
 
-            <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-700 rounded-xl p-2">
-              <input
-                type="text"
-                readOnly
-                value={liveSubscriptionFeedUrl}
-                className="bg-transparent text-[11px] font-mono text-zinc-300 flex-1 focus:outline-none"
-              />
+            <div className="space-y-2 pt-1">
               <button
-                onClick={() => {
-                  navigator.clipboard?.writeText(liveSubscriptionFeedUrl);
-                  setCopiedFeedUrl(true);
-                  notify('Feed Link Copied', 'Paste this URL into Apple Calendar, Google Calendar, or Outlook.');
-                  setTimeout(() => setCopiedFeedUrl(false), 3000);
-                }}
-                className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 flex-shrink-0"
-              >
-                {copiedFeedUrl ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                {copiedFeedUrl ? 'Copied' : 'Copy Feed'}
-              </button>
-            </div>
-
-            <div className="flex flex-wrap gap-2 pt-1">
-              <button
+                type="button"
+                disabled={myConfirmedLessons.length === 0}
                 onClick={() => {
                   const ics = buildLessonICSContent(myConfirmedLessons, pupil.name);
                   downloadICSFile(`LearnToPassWithUs-AllLessons-${pupil.name.replace(/\s+/g, '')}.ics`, ics);
-                  notify('All Lessons Downloaded', 'Open the .ics file to import all lessons into Apple/Outlook/Google Calendar.');
+                  notify('Calendar File Downloaded', 'Tap the downloaded .ics file to add all confirmed lessons to Apple Calendar, Outlook, or Google Calendar.');
                 }}
-                className="flex-1 py-2 px-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-bold text-white flex items-center justify-center gap-1.5 border border-zinc-700"
+                className="w-full py-2.5 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-xs font-extrabold text-white flex items-center justify-center gap-2 shadow-sm transition cursor-pointer"
               >
-                <Download className="w-3.5 h-3.5 text-emerald-400" />
-                Download All (.ics for iOS / Outlook / Google)
+                <Download className="w-4 h-4" />
+                {myConfirmedLessons.length > 0
+                  ? `Download All ${myConfirmedLessons.length} Confirmed Lesson(s) (.ics)`
+                  : 'No Confirmed Lessons to Export Yet'}
               </button>
+
+              {myConfirmedLessons.length > 0 && (
+                <div className="pt-2 border-t border-zinc-800 space-y-1.5">
+                  <span className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">
+                    Or 1-Tap Add to Google Calendar:
+                  </span>
+                  {myConfirmedLessons.slice(0, 3).map((l) => (
+                    <a
+                      key={l.id}
+                      href={buildGoogleCalendarUrl(l)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center justify-between px-3 py-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-xs font-semibold text-zinc-200 transition"
+                    >
+                      <span>
+                        {formatReadableDate(l.date)} • {l.startTime} ({l.durationMins / 60}h)
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-emerald-400 font-bold text-[11px]">
+                        + Google Cal <ExternalLink className="w-3 h-3" />
+                      </span>
+                    </a>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -2803,6 +2872,35 @@ function CalendarSyncAndUnavailabilityView({
   const [shiftEnd, setShiftEnd] = useState(settings.secondaryShiftEnd || '17:00');
   const [shiftDays, setShiftDays] = useState(settings.secondaryShiftDays || []);
   const [isSyncingRota, setIsSyncingRota] = useState(false);
+  const [showManualIcsPaste, setShowManualIcsPaste] = useState(false);
+  const [manualIcsText, setManualIcsText] = useState('');
+  const icsFileRef = useRef(null);
+
+  const applyParsedRotaEvents = (icsContent, sourceUrl = icalUrl) => {
+    if (!icsContent || !icsContent.includes('BEGIN:VCALENDAR')) {
+      throw new Error('Invalid calendar data — expected an .ics file containing VCALENDAR events.');
+    }
+    const parsedEvents = parseICSFeedEvents(icsContent);
+    const updatedSettings = {
+      ...settings,
+      workStart,
+      workEnd,
+      secondaryIcalUrl: sourceUrl,
+      secondaryShiftEnabled: true,
+      secondaryShiftStart: shiftStart,
+      secondaryShiftEnd: shiftEnd,
+      secondaryShiftDays: shiftDays,
+      lastRotaSyncAt: new Date().toISOString(),
+      syncedRotaCount: parsedEvents.length
+    };
+
+    setShiftEnabled(true);
+    onSyncRotaEvents?.(parsedEvents, updatedSettings);
+    notify(
+      `Synced ${parsedEvents.length} Rota Shift(s)!`,
+      'All events from your work rota now block pupil bookings—even if marked "Free" in Google Calendar.'
+    );
+  };
 
   const handleSyncWorkRotaFeed = async (targetUrl = icalUrl) => {
     const cleanUrl = (targetUrl || '').trim();
@@ -2816,56 +2914,69 @@ function CalendarSyncAndUnavailabilityView({
 
     try {
       let icsContent = '';
-      try {
-        const directRes = await fetch(httpUrl);
-        if (directRes.ok) {
-          icsContent = await directRes.text();
+      const candidateFetchUrls = [
+        httpUrl,
+        `https://api.allorigins.win/get?url=${encodeURIComponent(httpUrl)}`,
+        `https://corsproxy.io/?url=${encodeURIComponent(httpUrl)}`,
+        `https://corsproxy.io/?${encodeURIComponent(httpUrl)}`,
+        `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(httpUrl)}`,
+        `https://thingproxy.freeboard.io/fetch/${httpUrl}`
+      ];
+
+      for (const fetchUrl of candidateFetchUrls) {
+        try {
+          const res = await fetch(fetchUrl);
+          if (res.ok) {
+            const rawText = await res.text();
+            let text = rawText;
+            if (fetchUrl.includes('allorigins.win/get')) {
+              try {
+                const parsedJson = JSON.parse(rawText);
+                text = parsedJson.contents || '';
+              } catch (_) {}
+            }
+            if (text && text.includes('BEGIN:VCALENDAR')) {
+              icsContent = text;
+              break;
+            }
+          }
+        } catch (_) {
+          // Try next proxy relay
         }
-      } catch (_) {
-        // Fallback to CORS relay below
       }
 
-      if (!icsContent || !icsContent.includes('BEGIN:VCALENDAR')) {
-        const proxyRes = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(httpUrl)}`);
-        if (!proxyRes.ok) {
-          throw new Error('Could not reach the work rota feed URL.');
-        }
-        icsContent = await proxyRes.text();
+      if (!icsContent) {
+        setShowManualIcsPaste(true);
+        throw new Error(
+          'Amazon S3 blocked direct browser fetch. Click "Open Link to Download .ics" below, then upload that downloaded file!'
+        );
       }
 
-      if (!icsContent.includes('BEGIN:VCALENDAR')) {
-        throw new Error('The link did not return a valid .ics calendar feed.');
-      }
-
-      const parsedEvents = parseICSFeedEvents(icsContent);
-      const updatedSettings = {
-        ...settings,
-        workStart,
-        workEnd,
-        secondaryIcalUrl: cleanUrl,
-        secondaryShiftEnabled: true,
-        secondaryShiftStart: shiftStart,
-        secondaryShiftEnd: shiftEnd,
-        secondaryShiftDays: shiftDays,
-        lastRotaSyncAt: new Date().toISOString(),
-        syncedRotaCount: parsedEvents.length
-      };
-
-      setShiftEnabled(true);
-      onSyncRotaEvents?.(parsedEvents, updatedSettings);
-      notify(
-        `Synced ${parsedEvents.length} Rota Shift(s)!`,
-        'All events from your work rota now block pupil bookings—even if marked "Free" in Google Calendar.'
-      );
+      applyParsedRotaEvents(icsContent, cleanUrl);
     } catch (err) {
       notify(
-        'Could Not Fetch Feed Directly',
-        err.message || 'Check that the link is the original .ics / webcal:// rota URL.',
+        'Direct Link Fetch Blocked by S3',
+        err.message || 'Use the Download & Upload .ics buttons right below the URL box.',
         'error'
       );
     } finally {
       setIsSyncingRota(false);
     }
+  };
+
+  const handleIcsFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        applyParsedRotaEvents(String(reader.result || ''), icalUrl);
+      } catch (err) {
+        notify('Could Not Read .ics File', err.message, 'error');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
   };
 
   const handleSaveSettings = (e) => {
@@ -3110,17 +3221,99 @@ function CalendarSyncAndUnavailabilityView({
                 </button>
               </div>
               {rotaEvents.length > 0 && (
-                <p className="text-[11px] font-bold text-emerald-700 mt-1.5">
-                  {rotaEvents.length} work rota shift(s) actively blocking availability
-                  {settings.lastRotaSyncAt
-                    ? ` (Last synced: ${new Date(settings.lastRotaSyncAt).toLocaleString('en-GB', {
-                        day: 'numeric',
-                        month: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })})`
-                    : ''}
-                </p>
+                <div className="mt-2 p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 space-y-1">
+                  <p className="text-[11px] font-extrabold text-emerald-800">
+                    ✓ {rotaEvents.length} Connecteam / Work Rota shift(s) actively blocking availability
+                    {settings.lastRotaSyncAt
+                      ? ` (Synced: ${new Date(settings.lastRotaSyncAt).toLocaleString('en-GB', {
+                          day: 'numeric',
+                          month: 'short',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })})`
+                      : ''}
+                  </p>
+                  <div className="max-h-28 overflow-y-auto space-y-1 pt-1 border-t border-emerald-200/70">
+                    {rotaEvents
+                      .filter((ev) => ev.date >= getUpcomingDateStr(0))
+                      .slice(0, 6)
+                      .map((ev) => (
+                        <div key={ev.id} className="text-[11px] text-emerald-950 flex justify-between">
+                          <span className="font-semibold truncate pr-2">{ev.title}</span>
+                          <span className="font-mono font-bold flex-shrink-0">
+                            {formatReadableDate(ev.date)} ({ev.allDay ? 'All Day' : `${ev.startTime}-${ev.endTime}`})
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                {icalUrl && (
+                  <a
+                    href={icalUrl.replace(/^webcal:\/\//i, 'https://')}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-100 hover:bg-indigo-200 text-indigo-950 border border-indigo-300 text-[11px] font-bold transition"
+                  >
+                    <Download className="w-3.5 h-3.5 text-indigo-700" />
+                    1. Download Connecteam .ics File
+                  </a>
+                )}
+                <input
+                  ref={icsFileRef}
+                  type="file"
+                  accept=".ics,text/calendar"
+                  onChange={handleIcsFileUpload}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => icsFileRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-indigo-100 text-indigo-900 border border-indigo-200 text-[11px] font-bold transition"
+                >
+                  <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                  {icalUrl ? '2. Upload Downloaded .ics File' : 'Upload Downloaded .ics File'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowManualIcsPaste(!showManualIcsPaste)}
+                  className="text-[11px] font-bold text-indigo-700 hover:underline"
+                >
+                  {showManualIcsPaste ? 'Hide Paste Box' : 'Or Paste .ics Text'}
+                </button>
+              </div>
+
+              {showManualIcsPaste && (
+                <div className="mt-2.5 p-3 rounded-xl bg-white border border-indigo-200 space-y-2">
+                  <p className="text-[11px] text-slate-600">
+                    If your rota URL blocks external fetchers, open your rota link in a new browser tab, press{' '}
+                    <strong>Ctrl+A</strong> then <strong>Ctrl+C</strong>, and paste it here:
+                  </p>
+                  <textarea
+                    rows={3}
+                    value={manualIcsText}
+                    onChange={(e) => setManualIcsText(e.target.value)}
+                    placeholder="BEGIN:VCALENDAR..."
+                    className="w-full rounded-lg border border-slate-300 p-2 text-[11px] font-mono bg-white text-slate-900"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      try {
+                        applyParsedRotaEvents(manualIcsText, icalUrl);
+                        setManualIcsText('');
+                        setShowManualIcsPaste(false);
+                      } catch (err) {
+                        notify('Invalid Calendar Text', err.message, 'error');
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold"
+                  >
+                    Import Pasted Rota Shifts
+                  </button>
+                </div>
               )}
             </div>
 
