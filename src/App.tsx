@@ -3677,7 +3677,11 @@ function CalendarSyncAndUnavailabilityView({
                     <button
                       key={dName}
                       type="button"
-                      onClick={() => toggleShiftDay(idx)}
+                      onClick={() =>
+                        setShiftDays((prev) =>
+                          prev.includes(idx) ? prev.filter((d) => d !== idx) : [...prev, idx]
+                        )
+                      }
                       className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${
                         active
                           ? 'bg-indigo-600 text-white border-indigo-600'
@@ -4332,6 +4336,358 @@ function AuthPortalView({ accounts, customCarPhoto, cloudReady, onLoginSuccess, 
       <footer className="text-center text-xs text-slate-500 py-4 border-t border-slate-200 bg-white">
         © {new Date().getFullYear()} Learn To Pass With Us • Manual Tuition in VW Golf Mk5 GTI (EN56 WXA)
       </footer>
+    </div>
+  );
+}
+
+// ============================================================================
+// SUB-COMPONENT: DVSA SYLLABUS & LESSON PLAN FLOWCHART (PUPILS / PROGRESS TAB)
+// ============================================================================
+function SyllabusFlowchartView({
+  isInstructor,
+  currentUser,
+  pupilsList,
+  selectedPupilId,
+  setSelectedPupilId,
+  syllabusProgress,
+  setSyllabusProgress,
+  onPersistSyllabus,
+  notify
+}) {
+  const activePupilId = isInstructor
+    ? selectedPupilId || pupilsList[0]?.id || ''
+    : currentUser.id;
+
+  const activePupil = isInstructor
+    ? pupilsList.find((p) => p.id === activePupilId) || pupilsList[0]
+    : currentUser;
+
+  const currentSkills = (activePupil && syllabusProgress[activePupil.id]) || {};
+
+  const readinessPercent = useMemo(() => {
+    const totalPossible = DVSA_SYLLABUS_SKILLS.length * 5;
+    const earned = DVSA_SYLLABUS_SKILLS.reduce(
+      (sum, skill) => sum + (Number(currentSkills[skill.id]) || 0),
+      0
+    );
+    return Math.round((earned / totalPossible) * 100);
+  }, [currentSkills]);
+
+  const handleUpdateSkillLevel = (skillId, levelVal) => {
+    if (!isInstructor || !activePupil) return;
+    const updatedForPupil = {
+      ...currentSkills,
+      [skillId]: levelVal
+    };
+    setSyllabusProgress((prev) => ({
+      ...prev,
+      [activePupil.id]: updatedForPupil
+    }));
+    onPersistSyllabus?.(activePupil.id, updatedForPupil);
+    notify(
+      'DVSA Progress Updated',
+      `Updated ${activePupil.name}'s syllabus rating to "${SKILL_LEVELS[levelVal].label}".`
+    );
+  };
+
+  if (isInstructor && pupilsList.length === 0) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center shadow-sm space-y-2">
+        <Users className="w-10 h-10 text-slate-400 mx-auto" />
+        <h2 className="text-lg font-extrabold text-slate-900">No Pupils Registered Yet</h2>
+        <p className="text-xs text-slate-500 max-w-md mx-auto">
+          Once a pupil signs up or you add them via <strong>Add User</strong> in the top bar, their DVSA 5-stage syllabus progress tracker will appear here.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full">
+            <Award className="w-3.5 h-3.5" /> Official DVSA Syllabus Tracker
+          </span>
+          <h2 className="text-lg sm:text-xl font-black text-slate-900 mt-1">
+            {isInstructor
+              ? `Pupil Lesson Plan: ${activePupil?.name || ''}`
+              : 'My Driving Progress & Test Readiness'}
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {isInstructor
+              ? 'Tap any rating button below to update your pupil’s live DVSA stage progress.'
+              : 'Track your progress across all 5 DVSA stages toward driving test readiness.'}
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-4">
+          {isInstructor && (
+            <div>
+              <label className="block text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mb-1">
+                Select Pupil
+              </label>
+              <select
+                value={activePupil?.id || ''}
+                onChange={(e) => setSelectedPupilId(e.target.value)}
+                className="rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-bold bg-white text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+              >
+                {pupilsList.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.postcode.split('-')[0].trim()})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="bg-zinc-900 text-white px-4 py-3 rounded-2xl min-w-[155px]">
+            <span className="text-[10px] uppercase tracking-wider font-bold text-zinc-400 block">
+              Test Readiness
+            </span>
+            <div className="flex items-baseline gap-2 mt-0.5">
+              <span className="text-2xl font-black text-emerald-400">{readinessPercent}%</span>
+              <span className="text-[11px] text-zinc-300 font-semibold">Complete</span>
+            </div>
+            <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden mt-2">
+              <div
+                className="h-full bg-emerald-500 rounded-full transition-all duration-300"
+                style={{ width: `${readinessPercent}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Syllabus Skills Flowchart Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {DVSA_SYLLABUS_SKILLS.map((skill, idx) => {
+          const currentLevelVal = Number(currentSkills[skill.id]) || 0;
+          const levelMeta = SKILL_LEVELS[currentLevelVal] || SKILL_LEVELS[0];
+
+          return (
+            <div
+              key={skill.id}
+              className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col justify-between gap-4 hover:border-emerald-300 transition"
+            >
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
+                    {skill.category}
+                  </span>
+                  <span
+                    className={`inline-flex items-center gap-1.5 text-[11px] font-extrabold px-2.5 py-0.5 rounded-full border ${levelMeta.color}`}
+                  >
+                    <span className={`w-2 h-2 rounded-full ${levelMeta.dot}`} />
+                    {levelMeta.label}
+                  </span>
+                </div>
+
+                <h3 className="text-base font-extrabold text-slate-900 mt-1.5">
+                  {idx + 1}. {skill.title}
+                </h3>
+                <p className="text-xs text-slate-600 mt-1 leading-relaxed">{skill.desc}</p>
+              </div>
+
+              <div className="pt-3 border-t border-slate-100">
+                <span className="block text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mb-2">
+                  {isInstructor ? 'Set Competence Level:' : 'Current Competence Level:'}
+                </span>
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+                  {SKILL_LEVELS.map((lvl) => {
+                    const selected = currentLevelVal === lvl.value;
+                    return (
+                      <button
+                        key={lvl.value}
+                        type="button"
+                        disabled={!isInstructor}
+                        onClick={() => handleUpdateSkillLevel(skill.id, lvl.value)}
+                        className={`py-1.5 px-1 rounded-lg text-[10px] font-extrabold border text-center transition ${
+                          selected
+                            ? 'bg-zinc-900 text-white border-zinc-900 shadow-xs'
+                            : isInstructor
+                            ? 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 cursor-pointer'
+                            : 'bg-slate-50 text-slate-400 border-slate-100 cursor-default'
+                        }`}
+                      >
+                        {lvl.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// SUB-COMPONENT: DIRECT MESSAGING & AUTOMATED ALERTS INBOX (MESSAGES TAB)
+// ============================================================================
+function MessagingCenterView({
+  currentUser,
+  isInstructor,
+  pupilsList,
+  accounts,
+  messages,
+  setMessages,
+  onMarkRead,
+  onSendMessage,
+  notify
+}) {
+  const instructorAccount = accounts.find((a) => a.role === 'instructor');
+  const [recipientId, setRecipientId] = useState(
+    isInstructor ? pupilsList[0]?.id || '' : instructorAccount?.id || 'instructor-main'
+  );
+  const [messageText, setMessageText] = useState('');
+
+  useEffect(() => {
+    if (isInstructor && !recipientId && pupilsList.length > 0) {
+      setRecipientId(pupilsList[0].id);
+    }
+    if (!isInstructor && instructorAccount?.id) {
+      setRecipientId(instructorAccount.id);
+    }
+  }, [isInstructor, pupilsList, instructorAccount, recipientId]);
+
+  const myMessages = useMemo(() => {
+    return messages.filter(
+      (m) => m.toId === currentUser.id || m.fromId === currentUser.id
+    );
+  }, [messages, currentUser.id]);
+
+  // Mark unread messages addressed to currentUser as read when viewing
+  useEffect(() => {
+    const unread = myMessages.filter((m) => m.toId === currentUser.id && !m.read);
+    if (unread.length === 0) return;
+    setMessages((prev) =>
+      prev.map((m) => (m.toId === currentUser.id && !m.read ? { ...m, read: true } : m))
+    );
+    unread.forEach((m) => onMarkRead?.(m.id));
+  }, [myMessages, currentUser.id]);
+
+  const handleSend = (e) => {
+    e.preventDefault();
+    const clean = messageText.trim();
+    if (!clean) return;
+
+    const targetAcc = accounts.find((a) => a.id === recipientId);
+    const targetId = targetAcc?.id || (isInstructor ? '' : 'instructor-main');
+    const targetName = targetAcc?.name || (isInstructor ? 'Pupil' : 'Instructor');
+
+    if (!targetId) {
+      notify('Select a Recipient', 'Please choose a pupil to message.', 'error');
+      return;
+    }
+
+    onSendMessage(targetId, targetName, clean, 'direct');
+    setMessageText('');
+    notify('Message Sent', `Sent to ${targetName}.`);
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      {/* Compose Box */}
+      <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-4 self-start">
+        <div className="flex items-center gap-2">
+          <MessageSquare className="w-5 h-5 text-emerald-600" />
+          <div>
+            <h2 className="text-base font-extrabold text-slate-900">Send a Message</h2>
+            <p className="text-xs text-slate-500">
+              {isInstructor
+                ? 'Message any pupil directly about pick-ups, tests, or lesson slots.'
+                : 'Send a direct message to your instructor.'}
+            </p>
+          </div>
+        </div>
+
+        <form onSubmit={handleSend} className="space-y-3">
+          {isInstructor && (
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">To Pupil</label>
+              <select
+                value={recipientId}
+                onChange={(e) => setRecipientId(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold bg-white text-slate-900"
+              >
+                {pupilsList.length === 0 ? (
+                  <option value="">No pupils registered yet</option>
+                ) : (
+                  pupilsList.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">Message</label>
+            <textarea
+              rows={4}
+              value={messageText}
+              onChange={(e) => setMessageText(e.target.value)}
+              placeholder="Write your message here..."
+              className="w-full rounded-xl border border-slate-300 p-3 text-sm bg-white text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={isInstructor && pupilsList.length === 0}
+            className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-sm font-extrabold flex items-center justify-center gap-2 shadow-sm transition"
+          >
+            <Send className="w-4 h-4" />
+            Send Message
+          </button>
+        </form>
+      </div>
+
+      {/* Inbox Feed */}
+      <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <h3 className="text-base font-extrabold text-slate-900">
+            Inbox &amp; Booking Notifications ({myMessages.length})
+          </h3>
+        </div>
+
+        {myMessages.length === 0 ? (
+          <div className="p-8 text-center text-sm text-slate-500">
+            No messages or booking notifications yet.
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100 max-h-[540px] overflow-y-auto">
+            {myMessages.map((msg) => {
+              const isSentByMe = msg.fromId === currentUser.id;
+              return (
+                <div key={msg.id} className="p-4 sm:px-5 space-y-1.5 hover:bg-slate-50/70">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-extrabold text-slate-900">
+                      {isSentByMe ? `To: ${msg.toName}` : `From: ${msg.fromName}`}
+                    </span>
+                    <span className="text-[11px] text-slate-400 font-semibold">
+                      {msg.timestamp
+                        ? new Date(msg.timestamp).toLocaleString('en-GB', {
+                            day: 'numeric',
+                            month: 'short',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })
+                        : ''}
+                    </span>
+                  </div>
+                  <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">{msg.text}</p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
