@@ -1145,9 +1145,7 @@ export default function App() {
 
   const navTabs = [
     { id: 'dashboard', label: isInstructor ? 'Home' : 'Lessons' },
-    ...(isInstructor
-      ? [{ id: 'calendar_sync', label: 'Diary' }]
-      : []),
+    { id: 'diary', label: 'Diary' },
     { id: 'syllabus', label: isInstructor ? 'Pupils' : 'Progress' },
     {
       id: 'messages',
@@ -1384,46 +1382,68 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'calendar_sync' && isInstructor && (
-          <CalendarSyncAndUnavailabilityView
-            settings={settings}
-            setSettings={setSettings}
-            onPersistSettings={(newSettings) =>
-              persistCloudDoc('schoolConfig', 'main', { settings: newSettings })
-            }
-            rotaEvents={rotaEvents}
-            onSyncRotaEvents={(parsedEvents, updatedSettings) => {
-              setRotaEvents(parsedEvents);
-              setSettings(updatedSettings);
-              persistCloudDoc('schoolConfig', 'main', {
-                rotaEvents: parsedEvents,
-                settings: updatedSettings
-              });
-            }}
-            unavailability={unavailability}
-            setUnavailability={setUnavailability}
-            onAddCloudUnavail={(block) => persistCloudDoc('unavailability', block.id, block)}
-            onDeleteCloudUnavail={(blockId) => removeCloudDoc('unavailability', blockId)}
-            onOpenGoogleGuide={() => setShowGoogleGuideModal(true)}
-            notify={notify}
+        {activeTab === 'diary' && (
+          <GoogleStyleDiaryView
+            isInstructor={isInstructor}
+            currentUser={currentUser}
+            lessons={lessons}
+            unavailability={isInstructor ? unavailability : []}
+            rotaEvents={isInstructor && settings.secondaryShiftEnabled ? rotaEvents : []}
+            selectedDate={selectedDate}
+            setSelectedDate={setSelectedDate}
+            onOpenSettings={() => setActiveTab('accounts')}
+            onOpenDashboard={() => setActiveTab('dashboard')}
           />
         )}
 
         {activeTab === 'accounts' && (
-          <AccountManagementView
-            currentUser={currentUser}
-            isInstructor={isInstructor}
-            accounts={accounts}
-            onOpenCreate={() => setShowCreateAccountModal(true)}
-            onRequestDelete={(acc) =>
-              setConfirmModal({
-                title: `Delete ${acc.role === 'instructor' ? 'Instructor' : 'Pupil'} Account?`,
-                message: `Are you sure you want to permanently delete "${acc.name}"? Any active future lessons for this account will be cancelled automatically.`,
-                confirmLabel: 'Yes, Delete Account',
-                onConfirm: () => handleDeleteAccount(acc)
-              })
-            }
-          />
+          <div className="space-y-6">
+            {isInstructor ? (
+              <CalendarSyncAndUnavailabilityView
+                settings={settings}
+                setSettings={setSettings}
+                onPersistSettings={(newSettings) =>
+                  persistCloudDoc('schoolConfig', 'main', { settings: newSettings })
+                }
+                rotaEvents={rotaEvents}
+                onSyncRotaEvents={(parsedEvents, updatedSettings) => {
+                  setRotaEvents(parsedEvents);
+                  setSettings(updatedSettings);
+                  persistCloudDoc('schoolConfig', 'main', {
+                    rotaEvents: parsedEvents,
+                    settings: updatedSettings
+                  });
+                }}
+                unavailability={unavailability}
+                setUnavailability={setUnavailability}
+                onAddCloudUnavail={(block) => persistCloudDoc('unavailability', block.id, block)}
+                onDeleteCloudUnavail={(blockId) => removeCloudDoc('unavailability', blockId)}
+                onOpenGoogleGuide={() => setShowGoogleGuideModal(true)}
+                notify={notify}
+              />
+            ) : (
+              <PupilCalendarIntegrationCard
+                pupil={currentUser}
+                lessons={lessons}
+                notify={notify}
+              />
+            )}
+
+            <AccountManagementView
+              currentUser={currentUser}
+              isInstructor={isInstructor}
+              accounts={accounts}
+              onOpenCreate={() => setShowCreateAccountModal(true)}
+              onRequestDelete={(acc) =>
+                setConfirmModal({
+                  title: `Delete ${acc.role === 'instructor' ? 'Instructor' : 'Pupil'} Account?`,
+                  message: `Are you sure you want to permanently delete "${acc.name}"? Any active future lessons for this account will be cancelled automatically.`,
+                  confirmLabel: 'Yes, Delete Account',
+                  onConfirm: () => handleDeleteAccount(acc)
+                })
+              }
+            />
+          </div>
         )}
       </main>
 
@@ -2261,60 +2281,16 @@ function PupilDashboardView({
         </div>
 
         <div className="lg:col-span-5 space-y-5">
-          <div className="bg-zinc-900 text-white rounded-2xl p-5 shadow-md border border-zinc-800 space-y-3.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <CalendarPlus className="w-5 h-5 text-emerald-400" />
-                <h3 className="text-sm font-extrabold">Sync Lessons to Your Phone</h3>
-              </div>
-              <span className="text-[10px] uppercase tracking-wider font-bold bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full">
-                iOS • Google • Outlook
-              </span>
+          <div className="bg-slate-900 text-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-800 flex items-start gap-3">
+            <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 flex-shrink-0">
+              <CalendarPlus className="w-5 h-5" />
             </div>
-            <p className="text-xs text-zinc-300 leading-relaxed">
-              Add all your confirmed lessons—complete with pick-up locations and instructor focus notes—straight to your phone&apos;s calendar:
-            </p>
-
-            <div className="space-y-2 pt-1">
-              <button
-                type="button"
-                disabled={myConfirmedLessons.length === 0}
-                onClick={() => {
-                  const ics = buildLessonICSContent(myConfirmedLessons, pupil.name);
-                  downloadICSFile(`LearnToPassWithUs-AllLessons-${pupil.name.replace(/\s+/g, '')}.ics`, ics);
-                  notify('Calendar File Downloaded', 'Tap the downloaded .ics file to add all confirmed lessons to Apple Calendar, Outlook, or Google Calendar.');
-                }}
-                className="w-full py-2.5 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-xs font-extrabold text-white flex items-center justify-center gap-2 shadow-sm transition cursor-pointer"
-              >
-                <Download className="w-4 h-4" />
-                {myConfirmedLessons.length > 0
-                  ? `Download All ${myConfirmedLessons.length} Confirmed Lesson(s) (.ics)`
-                  : 'No Confirmed Lessons to Export Yet'}
-              </button>
-
-              {myConfirmedLessons.length > 0 && (
-                <div className="pt-2 border-t border-zinc-800 space-y-1.5">
-                  <span className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">
-                    Or 1-Tap Add to Google Calendar:
-                  </span>
-                  {myConfirmedLessons.slice(0, 3).map((l) => (
-                    <a
-                      key={l.id}
-                      href={buildGoogleCalendarUrl(l)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center justify-between px-3 py-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-xs font-semibold text-zinc-200 transition"
-                    >
-                      <span>
-                        {formatReadableDate(l.date)} • {l.startTime} ({l.durationMins / 60}h)
-                      </span>
-                      <span className="inline-flex items-center gap-1 text-emerald-400 font-bold text-[11px]">
-                        + Google Cal <ExternalLink className="w-3 h-3" />
-                      </span>
-                    </a>
-                  ))}
-                </div>
-              )}
+            <div className="text-xs leading-relaxed">
+              <h3 className="font-extrabold text-sm text-white">Sync Lessons to Your Phone</h3>
+              <p className="text-zinc-300 mt-0.5">
+                Calendar integration (Apple Calendar <code className="text-emerald-300">.ics</code> export &amp; 1-tap Google Calendar sync) can be found in the{' '}
+                <strong>Settings (⚙️)</strong> tab in the top-right corner.
+              </p>
             </div>
           </div>
 
@@ -2495,346 +2471,653 @@ function PupilDashboardView({
 }
 
 // ============================================================================
-// SUB-COMPONENT: DVSA SYLLABUS & LESSON PLAN FLOWCHART
+// SUB-COMPONENT: GOOGLE CALENDAR-STYLE DIARY (MONTH, WEEK & SCHEDULE VIEWS)
 // ============================================================================
-function SyllabusFlowchartView({
+function GoogleStyleDiaryView({
   isInstructor,
   currentUser,
-  pupilsList,
-  selectedPupilId,
-  setSelectedPupilId,
-  syllabusProgress,
-  setSyllabusProgress,
-  onPersistSyllabus,
-  notify
+  lessons,
+  unavailability = [],
+  rotaEvents = [],
+  selectedDate,
+  setSelectedDate,
+  onOpenSettings,
+  onOpenDashboard
 }) {
-  const targetPupilId = isInstructor ? (selectedPupilId || pupilsList[0]?.id) : currentUser.id;
-  const targetPupil = pupilsList.find((p) => p.id === targetPupilId) || (isInstructor ? pupilsList[0] : currentUser);
-  const pupilSkills = (targetPupil && syllabusProgress[targetPupil.id]) || {};
+  const [viewMode, setViewMode] = useState('month'); // 'month' | 'week' | 'schedule'
+  const [cursorDate, setCursorDate] = useState(() => selectedDate || getUpcomingDateStr(0));
 
-  const readinessPercent = useMemo(() => {
-    const maxScore = DVSA_SYLLABUS_SKILLS.length * 5;
-    let earned = 0;
-    DVSA_SYLLABUS_SKILLS.forEach((s) => {
-      earned += pupilSkills[s.id]?.level || 0;
-    });
-    return Math.round((earned / maxScore) * 100);
-  }, [pupilSkills]);
+  const toDateStr = (dt) =>
+    `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
 
-  const handleUpdateSkill = (skillId, newLevel, newNote) => {
-    if (!targetPupil) return;
-    const currentEntry = pupilSkills[skillId] || { level: 0, note: '' };
-    const updatedSkills = {
-      ...(syllabusProgress[targetPupil.id] || {}),
-      [skillId]: {
-        level: typeof newLevel === 'number' ? newLevel : currentEntry.level,
-        note: typeof newNote === 'string' ? newNote : currentEntry.note
-      }
-    };
-    setSyllabusProgress((prev) => ({
-      ...prev,
-      [targetPupil.id]: updatedSkills
-    }));
-    onPersistSyllabus?.(targetPupil.id, updatedSkills);
-    notify('Lesson Plan Updated', 'DVSA syllabus progress synced to cloud.');
+  const parseYMD = (str) => {
+    const [y, m, d] = (str || getUpcomingDateStr(0)).split('-').map(Number);
+    return new Date(y, m - 1, d);
   };
 
+  const todayStr = getUpcomingDateStr(0);
+
+  // Filter lessons visible to current user
+  const visibleLessons = useMemo(() => {
+    const active = lessons.filter((l) => l.status === 'confirmed' || l.status === 'pending');
+    return isInstructor ? active : active.filter((l) => l.pupilId === currentUser.id);
+  }, [lessons, isInstructor, currentUser.id]);
+
+  const lessonsByDate = useMemo(() => {
+    const map = {};
+    visibleLessons.forEach((l) => {
+      if (!map[l.date]) map[l.date] = [];
+      map[l.date].push(l);
+    });
+    Object.values(map).forEach((arr) =>
+      arr.sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime))
+    );
+    return map;
+  }, [visibleLessons]);
+
+  const blocksByDate = useMemo(() => {
+    const map = {};
+    if (!isInstructor) return map;
+    [...unavailability, ...rotaEvents].forEach((b) => {
+      if (!map[b.date]) map[b.date] = [];
+      map[b.date].push(b);
+    });
+    return map;
+  }, [isInstructor, unavailability, rotaEvents]);
+
+  const handleNavigate = (dir) => {
+    const dt = parseYMD(cursorDate);
+    if (viewMode === 'month') {
+      dt.setDate(1);
+      dt.setMonth(dt.getMonth() + dir);
+    } else {
+      dt.setDate(dt.getDate() + dir * 7);
+    }
+    const nextStr = toDateStr(dt);
+    setCursorDate(nextStr);
+    setSelectedDate(nextStr);
+  };
+
+  // Build Month Grid (Monday-start UK calendar)
+  const monthGridDays = useMemo(() => {
+    const anchor = parseYMD(cursorDate);
+    const year = anchor.getFullYear();
+    const month = anchor.getMonth();
+    const firstOfMonth = new Date(year, month, 1);
+    const startOffset = (firstOfMonth.getDay() + 6) % 7; // Mon = 0 ... Sun = 6
+    const gridStart = new Date(year, month, 1 - startOffset);
+
+    const days = [];
+    for (let i = 0; i < 42; i++) {
+      const cell = new Date(gridStart);
+      cell.setDate(gridStart.getDate() + i);
+      days.push({
+        dateStr: toDateStr(cell),
+        dayNum: cell.getDate(),
+        inCurrentMonth: cell.getMonth() === month
+      });
+    }
+    return days;
+  }, [cursorDate]);
+
+  // Build Week Grid (Monday - Sunday)
+  const weekGridDays = useMemo(() => {
+    const anchor = parseYMD(cursorDate);
+    const startOffset = (anchor.getDay() + 6) % 7;
+    const monday = new Date(anchor);
+    monday.setDate(anchor.getDate() - startOffset);
+
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const cell = new Date(monday);
+      cell.setDate(monday.getDate() + i);
+      days.push({
+        dateStr: toDateStr(cell),
+        dayNum: cell.getDate(),
+        weekdayShort: cell.toLocaleDateString('en-GB', { weekday: 'short' }),
+        monthShort: cell.toLocaleDateString('en-GB', { month: 'short' })
+      });
+    }
+    return days;
+  }, [cursorDate]);
+
+  // Build Upcoming Schedule List (next 60 days)
+  const upcomingScheduleDates = useMemo(() => {
+    const allDates = new Set([
+      ...Object.keys(lessonsByDate).filter((d) => d >= todayStr),
+      ...Object.keys(blocksByDate).filter((d) => d >= todayStr)
+    ]);
+    return Array.from(allDates).sort();
+  }, [lessonsByDate, blocksByDate, todayStr]);
+
+  const headerTitle = useMemo(() => {
+    const anchor = parseYMD(cursorDate);
+    if (viewMode === 'month') {
+      return anchor.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+    }
+    if (viewMode === 'week') {
+      const first = weekGridDays[0];
+      const last = weekGridDays[6];
+      return `${first.dayNum} ${first.monthShort} – ${last.dayNum} ${last.monthShort} ${anchor.getFullYear()}`;
+    }
+    return 'Upcoming Lesson Schedule';
+  }, [cursorDate, viewMode, weekGridDays]);
+
+  const selectedDayLessons = lessonsByDate[selectedDate] || [];
+  const selectedDayBlocks = blocksByDate[selectedDate] || [];
+
   return (
-    <div className="space-y-6">
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-extrabold text-slate-900 flex items-center gap-2">
-            <Award className="w-5 h-5 text-emerald-600" />
-            DVSA &lsquo;Ready to Pass?&rsquo; Lesson Flowchart
+    <div className="space-y-5">
+      {/* Top Google Calendar-Style Toolbar */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              setCursorDate(todayStr);
+              setSelectedDate(todayStr);
+            }}
+            className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-xs font-extrabold text-slate-800 shadow-xs transition cursor-pointer"
+          >
+            Today
+          </button>
+
+          {viewMode !== 'schedule' && (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => handleNavigate(-1)}
+                className="p-2 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 font-bold text-xs cursor-pointer"
+                title="Previous"
+              >
+                ◀
+              </button>
+              <button
+                type="button"
+                onClick={() => handleNavigate(1)}
+                className="p-2 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 font-bold text-xs cursor-pointer"
+                title="Next"
+              >
+                ▶
+              </button>
+            </div>
+          )}
+
+          <h2 className="text-base sm:text-xl font-black text-slate-900 tracking-tight">
+            {headerTitle}
           </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Step-by-step progression flow from Cockpit Drill through to Independent Driving &amp; Mock Test
-          </p>
         </div>
 
-        {isInstructor && pupilsList.length > 0 && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-600">Pupil:</span>
-            <select
-              value={targetPupil?.id || ''}
-              onChange={(e) => setSelectedPupilId(e.target.value)}
-              className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold bg-white text-slate-900"
-            >
-              {pupilsList.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({p.postcode.split('-')[0].trim()})
-                </option>
-              ))}
-            </select>
+        {/* View Switcher: Month / Week / Schedule */}
+        <div className="flex items-center gap-2">
+          <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200">
+            {[
+              { id: 'month', label: 'Month' },
+              { id: 'week', label: 'Week' },
+              { id: 'schedule', label: 'Schedule' }
+            ].map((v) => (
+              <button
+                key={v.id}
+                type="button"
+                onClick={() => setViewMode(v.id)}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                  viewMode === v.id
+                    ? 'bg-zinc-900 text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {v.label}
+              </button>
+            ))}
           </div>
-        )}
+        </div>
       </div>
 
-      {isInstructor && pupilsList.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-sm text-slate-500">
-          No pupils registered yet. Once a pupil signs up or you add one, their DVSA Lesson Plan will appear here.
+      {/* Legend + Settings Note */}
+      <div className="flex flex-wrap items-center justify-between gap-3 px-1 text-xs">
+        <div className="flex flex-wrap items-center gap-4 font-semibold text-slate-600">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="w-5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+            Confirmed Lesson
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="w-5 h-1.5 rounded-full bg-amber-500 inline-block" />
+            Pending Request
+          </span>
+          {isInstructor && (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="w-5 h-1.5 rounded-full bg-indigo-500 inline-block" />
+              Unavailable / Work Rota
+            </span>
+          )}
         </div>
-      ) : (
-        <>
-          <div className="bg-zinc-900 text-white rounded-2xl p-5 shadow-md">
-            <div className="flex items-center justify-between mb-2">
-              <div>
-                <span className="text-xs uppercase tracking-wider font-bold text-zinc-400">
-                  Test Readiness Score — {targetPupil?.name || 'Pupil'}
-                </span>
-                <h3 className="text-2xl font-black text-emerald-400">{readinessPercent}% Ready</h3>
-              </div>
-              {targetPupil?.testDate && (
-                <div className="text-right">
-                  <span className="text-xs text-zinc-400 block">Practical Test Date</span>
-                  <span className="text-sm font-extrabold text-amber-400">
-                    {formatReadableDate(targetPupil.testDate)}
-                  </span>
-                </div>
-              )}
-            </div>
-            <div className="w-full h-3 bg-zinc-800 rounded-full overflow-hidden">
+
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          className="text-xs font-bold text-emerald-700 hover:underline inline-flex items-center gap-1 cursor-pointer"
+        >
+          <Settings className="w-3.5 h-3.5" />
+          Calendar Integration &amp; Sync in Settings
+        </button>
+      </div>
+
+      {/* MONTH VIEW */}
+      {viewMode === 'month' && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="grid grid-cols-7 bg-slate-50 border-b border-slate-200">
+            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
               <div
-                className="h-full bg-gradient-to-r from-amber-500 via-emerald-500 to-teal-400 transition-all duration-500"
-                style={{ width: `${readinessPercent}%` }}
-              />
-            </div>
+                key={d}
+                className="py-2.5 text-center text-[11px] font-extrabold uppercase tracking-wider text-slate-500"
+              >
+                {d}
+              </div>
+            ))}
           </div>
 
-          <div className="space-y-3">
-            {DVSA_SYLLABUS_SKILLS.map((skill, index) => {
-              const entry = pupilSkills[skill.id] || { level: 0, note: '' };
-              const levelMeta = SKILL_LEVELS[entry.level] || SKILL_LEVELS[0];
+          <div className="grid grid-cols-7 divide-x divide-y divide-slate-200">
+            {monthGridDays.map((cell) => {
+              const dayLessons = lessonsByDate[cell.dateStr] || [];
+              const dayBlocks = blocksByDate[cell.dateStr] || [];
+              const isSelected = selectedDate === cell.dateStr;
+              const isToday = todayStr === cell.dateStr;
 
               return (
-                <div key={skill.id} className="relative">
-                  <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                    <div className="flex items-start gap-3.5">
-                      <div
-                        className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black text-white flex-shrink-0 mt-0.5 ${levelMeta.dot}`}
-                      >
-                        {index + 1}
-                      </div>
-                      <div>
-                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
-                          {skill.category}
-                        </span>
-                        <h4 className="text-sm sm:text-base font-extrabold text-slate-900">{skill.title}</h4>
-                        <p className="text-xs text-slate-500 mt-0.5">{skill.desc}</p>
-
-                        {isInstructor ? (
-                          <div className="mt-2 flex items-center gap-2">
-                            <input
-                              type="text"
-                              defaultValue={entry.note}
-                              onBlur={(e) => {
-                                if (e.target.value !== entry.note) {
-                                  handleUpdateSkill(skill.id, entry.level, e.target.value);
-                                }
-                              }}
-                              placeholder="Add instructor progress note..."
-                              className="w-full sm:w-80 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-800 focus:border-emerald-500 focus:outline-none"
-                            />
-                          </div>
-                        ) : (
-                          entry.note && (
-                            <p className="mt-1.5 text-xs font-medium text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg inline-block">
-                              Instructor Note: {entry.note}
-                            </p>
-                          )
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {SKILL_LEVELS.map((lvl) => {
-                        const active = entry.level === lvl.value;
-                        return (
-                          <button
-                            key={lvl.value}
-                            type="button"
-                            disabled={!isInstructor}
-                            onClick={() => handleUpdateSkill(skill.id, lvl.value, entry.note)}
-                            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold border transition ${
-                              active
-                                ? `${lvl.color} ring-2 ring-offset-1 ring-slate-300`
-                                : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
-                            } ${!isInstructor ? 'cursor-default' : 'cursor-pointer'}`}
-                          >
-                            {lvl.label}
-                          </button>
-                        );
-                      })}
-                    </div>
+                <button
+                  key={cell.dateStr}
+                  type="button"
+                  onClick={() => {
+                    setSelectedDate(cell.dateStr);
+                    setCursorDate(cell.dateStr);
+                  }}
+                  className={`min-h-[84px] sm:min-h-[104px] p-1.5 sm:p-2 flex flex-col justify-between text-left transition cursor-pointer ${
+                    !cell.inCurrentMonth ? 'bg-slate-50/70 text-slate-400' : 'bg-white text-slate-900'
+                  } ${isSelected ? 'ring-2 ring-inset ring-emerald-600 bg-emerald-50/30' : 'hover:bg-slate-50'}`}
+                >
+                  <div className="w-full flex items-center justify-between">
+                    <span
+                      className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-extrabold ${
+                        isToday
+                          ? 'bg-emerald-600 text-white'
+                          : isSelected
+                          ? 'bg-zinc-900 text-white'
+                          : ''
+                      }`}
+                    >
+                      {cell.dayNum}
+                    </span>
+                    {dayLessons.length > 0 && (
+                      <span className="text-[10px] font-extrabold text-slate-500 hidden sm:inline">
+                        {dayLessons.length}x
+                      </span>
+                    )}
                   </div>
 
-                  {index < DVSA_SYLLABUS_SKILLS.length - 1 && (
-                    <div className="flex justify-center my-1">
-                      <div className="w-0.5 h-4 bg-slate-300" />
+                  {/* Coloured Lines Indicating Booked Lessons / Rota Blocks */}
+                  <div className="w-full space-y-1 mt-1.5">
+                    {dayLessons.slice(0, 3).map((l) => (
+                      <div key={l.id} className="w-full">
+                        <div
+                          className={`h-1.5 w-full rounded-full ${
+                            l.status === 'confirmed' ? 'bg-emerald-500' : 'bg-amber-500'
+                          }`}
+                        />
+                        <span className="hidden md:block text-[10px] font-bold truncate text-slate-700 mt-0.5">
+                          {l.startTime} {isInstructor ? l.pupilName.split(' ')[0] : 'Lesson'}
+                        </span>
+                      </div>
+                    ))}
+                    {dayLessons.length > 3 && (
+                      <span className="block text-[9px] font-extrabold text-emerald-700">
+                        +{dayLessons.length - 3} more
+                      </span>
+                    )}
+                    {dayBlocks.length > 0 && (
+                      <div className="h-1.5 w-full rounded-full bg-indigo-500" title={dayBlocks[0].title} />
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* WEEK VIEW */}
+      {viewMode === 'week' && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="grid grid-cols-1 sm:grid-cols-7 divide-y sm:divide-y-0 sm:divide-x divide-slate-200">
+            {weekGridDays.map((day) => {
+              const dayLessons = lessonsByDate[day.dateStr] || [];
+              const dayBlocks = blocksByDate[day.dateStr] || [];
+              const isSelected = selectedDate === day.dateStr;
+              const isToday = todayStr === day.dateStr;
+
+              return (
+                <div
+                  key={day.dateStr}
+                  onClick={() => {
+                    setSelectedDate(day.dateStr);
+                    setCursorDate(day.dateStr);
+                  }}
+                  className={`min-h-[150px] sm:min-h-[260px] p-3 flex flex-col justify-between cursor-pointer transition ${
+                    isSelected ? 'bg-emerald-50/40 ring-2 ring-inset ring-emerald-600' : 'hover:bg-slate-50'
+                  }`}
+                >
+                  <div>
+                    <div className="flex sm:flex-col items-center justify-between sm:justify-center pb-2.5 mb-2.5 border-b border-slate-100">
+                      <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
+                        {day.weekdayShort}
+                      </span>
+                      <span
+                        className={`mt-0.5 w-8 h-8 rounded-full flex items-center justify-center text-sm font-black ${
+                          isToday
+                            ? 'bg-emerald-600 text-white'
+                            : isSelected
+                            ? 'bg-zinc-900 text-white'
+                            : 'text-slate-900'
+                        }`}
+                      >
+                        {day.dayNum}
+                      </span>
                     </div>
-                  )}
+
+                    {/* Coloured Line Indicator at Top of Booked Dates */}
+                    {(dayLessons.length > 0 || dayBlocks.length > 0) && (
+                      <div className="space-y-1 mb-2.5">
+                        {dayLessons.length > 0 && (
+                          <div
+                            className={`h-1.5 w-full rounded-full ${
+                              dayLessons.some((l) => l.status === 'confirmed')
+                                ? 'bg-emerald-500'
+                                : 'bg-amber-500'
+                            }`}
+                          />
+                        )}
+                        {dayBlocks.length > 0 && (
+                          <div className="h-1.5 w-full rounded-full bg-indigo-500" />
+                        )}
+                      </div>
+                    )}
+
+                    {/* Event Pills inside Week Column */}
+                    <div className="space-y-1.5">
+                      {dayLessons.map((l) => {
+                        const endStr = minutesToTime(timeToMinutes(l.startTime) + l.durationMins);
+                        return (
+                          <div
+                            key={l.id}
+                            className={`p-2 rounded-xl border text-[11px] leading-snug ${
+                              l.status === 'confirmed'
+                                ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
+                                : 'bg-amber-50 border-amber-200 text-amber-950'
+                            }`}
+                          >
+                            <span className="font-mono font-extrabold block">
+                              {l.startTime}–{endStr}
+                            </span>
+                            <span className="font-bold block truncate">
+                              {isInstructor ? l.pupilName : `${l.durationMins / 60}h Lesson`}
+                            </span>
+                          </div>
+                        );
+                      })}
+                      {dayBlocks.map((b) => (
+                        <div
+                          key={b.id}
+                          className="p-2 rounded-xl bg-indigo-50 border border-indigo-200 text-[11px] text-indigo-950"
+                        >
+                          <span className="font-bold block truncate">{b.title}</span>
+                          <span className="font-mono text-[10px]">
+                            {b.allDay ? 'All Day' : `${b.startTime}–${b.endTime}`}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               );
             })}
           </div>
-        </>
+        </div>
+      )}
+
+      {/* SCHEDULE VIEW */}
+      {viewMode === 'schedule' && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm divide-y divide-slate-100">
+          {upcomingScheduleDates.length === 0 ? (
+            <div className="p-8 text-center text-sm text-slate-500">
+              No upcoming lessons or blocks scheduled.
+            </div>
+          ) : (
+            upcomingScheduleDates.map((dStr) => {
+              const dLessons = lessonsByDate[dStr] || [];
+              const dBlocks = blocksByDate[dStr] || [];
+              return (
+                <div key={dStr} className="p-4 sm:p-5 flex flex-col sm:flex-row gap-4">
+                  <div className="sm:w-44 flex-shrink-0">
+                    <span className="text-sm font-black text-slate-900 block">
+                      {formatReadableDate(dStr)}
+                    </span>
+                    {dStr === todayStr && (
+                      <span className="inline-block mt-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold uppercase">
+                        Today
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex-1 space-y-2">
+                    {dLessons.map((l) => {
+                      const endStr = minutesToTime(timeToMinutes(l.startTime) + l.durationMins);
+                      return (
+                        <div
+                          key={l.id}
+                          className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50/70"
+                        >
+                          <div className="flex items-center gap-3">
+                            <span
+                              className={`w-1.5 h-8 rounded-full ${
+                                l.status === 'confirmed' ? 'bg-emerald-500' : 'bg-amber-500'
+                              }`}
+                            />
+                            <div>
+                              <span className="font-mono text-xs font-extrabold text-slate-900">
+                                {l.startTime} – {endStr} ({l.durationMins / 60}h)
+                              </span>
+                              <span className="block text-xs font-bold text-slate-700">
+                                {isInstructor ? l.pupilName : 'Driving Lesson'} • {l.pickupLocation}
+                              </span>
+                            </div>
+                          </div>
+                          <span
+                            className={`text-[10px] uppercase font-extrabold px-2.5 py-1 rounded-full ${
+                              l.status === 'confirmed'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {l.status}
+                          </span>
+                        </div>
+                      );
+                    })}
+
+                    {dBlocks.map((b) => (
+                      <div
+                        key={b.id}
+                        className="flex items-center gap-3 p-3 rounded-xl border border-indigo-200 bg-indigo-50/60"
+                      >
+                        <span className="w-1.5 h-8 rounded-full bg-indigo-500" />
+                        <div>
+                          <span className="font-mono text-xs font-extrabold text-indigo-950">
+                            {b.allDay ? 'All Day' : `${b.startTime} – ${b.endTime}`}
+                          </span>
+                          <span className="block text-xs font-bold text-indigo-800">{b.title}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+
+      {/* Selected Day Agenda Drawer (for Month & Week views) */}
+      {viewMode !== 'schedule' && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-base font-extrabold text-slate-900">
+              Agenda for {formatReadableDate(selectedDate)}
+            </h3>
+            <button
+              type="button"
+              onClick={onOpenDashboard}
+              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition cursor-pointer"
+            >
+              {isInstructor ? 'Manage in Home Tab' : 'Book Lesson for This Date'}
+            </button>
+          </div>
+
+          {selectedDayLessons.length === 0 && selectedDayBlocks.length === 0 ? (
+            <p className="text-xs text-slate-500">
+              No lessons or blocks on {formatReadableDate(selectedDate)}.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {selectedDayLessons.map((l) => {
+                const endStr = minutesToTime(timeToMinutes(l.startTime) + l.durationMins);
+                return (
+                  <div
+                    key={l.id}
+                    className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={`w-1.5 h-9 rounded-full ${
+                          l.status === 'confirmed' ? 'bg-emerald-500' : 'bg-amber-500'
+                        }`}
+                      />
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-extrabold text-xs bg-zinc-900 text-white px-2 py-0.5 rounded">
+                            {l.startTime} – {endStr}
+                          </span>
+                          <span className="font-extrabold text-sm text-slate-900">
+                            {isInstructor ? l.pupilName : `${l.durationMins / 60}h Manual Lesson`}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-600 mt-1">
+                          {l.pickupLocation} • Focus: {l.notes || 'Syllabus progression'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <span
+                      className={`text-[10px] uppercase font-extrabold px-2.5 py-1 rounded-full ${
+                        l.status === 'confirmed'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-amber-100 text-amber-800'
+                      }`}
+                    >
+                      {l.status}
+                    </span>
+                  </div>
+                );
+              })}
+
+              {selectedDayBlocks.map((b) => (
+                <div
+                  key={b.id}
+                  className="p-3.5 rounded-xl border border-indigo-200 bg-indigo-50/70 flex items-center gap-3"
+                >
+                  <span className="w-1.5 h-8 rounded-full bg-indigo-500" />
+                  <div>
+                    <span className="text-xs font-extrabold text-indigo-950 block">{b.title}</span>
+                    <span className="text-xs text-indigo-800">
+                      {b.allDay ? 'All Day Unavailable' : `${b.startTime} – ${b.endTime}`}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
 }
 
 // ============================================================================
-// SUB-COMPONENT: DIRECT MESSAGES & AUTOMATED NOTIFICATIONS
+// SUB-COMPONENT: PUPIL CALENDAR INTEGRATION CARD (IN SETTINGS TAB)
 // ============================================================================
-function MessagingCenterView({
-  currentUser,
-  isInstructor,
-  pupilsList,
-  accounts = [],
-  messages,
-  setMessages,
-  onMarkRead,
-  onSendMessage,
-  notify
-}) {
-  const instructorAccount = accounts.find((a) => a.role === 'instructor');
-  const [recipientId, setRecipientId] = useState(
-    isInstructor ? pupilsList[0]?.id || '' : instructorAccount?.id || 'instructor-main'
+function PupilCalendarIntegrationCard({ pupil, lessons, notify }) {
+  const myConfirmedLessons = useMemo(
+    () => lessons.filter((l) => l.pupilId === pupil.id && l.status === 'confirmed'),
+    [lessons, pupil.id]
   );
-  const [text, setText] = useState('');
-
-  useEffect(() => {
-    if (isInstructor && !recipientId && pupilsList[0]?.id) {
-      setRecipientId(pupilsList[0].id);
-    } else if (!isInstructor && instructorAccount?.id) {
-      setRecipientId(instructorAccount.id);
-    }
-  }, [isInstructor, pupilsList, instructorAccount, recipientId]);
-
-  const myMessages = useMemo(() => {
-    return messages.filter((m) => m.toId === currentUser.id || m.fromId === currentUser.id);
-  }, [messages, currentUser.id]);
-
-  useEffect(() => {
-    const unread = myMessages.filter((m) => m.toId === currentUser.id && !m.read);
-    if (unread.length > 0) {
-      setMessages((prev) =>
-        prev.map((m) => (m.toId === currentUser.id && !m.read ? { ...m, read: true } : m))
-      );
-      unread.forEach((m) => onMarkRead?.(m.id));
-    }
-  }, [myMessages, currentUser.id, setMessages, onMarkRead]);
-
-  const handleSend = (e) => {
-    e.preventDefault();
-    if (!text.trim() || !recipientId) return;
-    const targetName = isInstructor
-      ? pupilsList.find((p) => p.id === recipientId)?.name || 'Pupil'
-      : instructorAccount?.name || 'Instructor';
-
-    onSendMessage(recipientId, targetName, text.trim(), 'direct');
-    setText('');
-    notify('Message Sent', `Delivered to ${targetName}.`);
-  };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4 h-fit">
-        <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-          <Send className="w-4 h-4 text-emerald-600" />
-          Send Direct Message
-        </h3>
-
-        <form onSubmit={handleSend} className="space-y-3">
-          {isInstructor ? (
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">To Pupil</label>
-              <select
-                value={recipientId}
-                onChange={(e) => setRecipientId(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold bg-white text-slate-900"
-              >
-                {pupilsList.length === 0 ? (
-                  <option value="">No pupils registered yet</option>
-                ) : (
-                  pupilsList.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))
-                )}
-              </select>
-            </div>
-          ) : (
-            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700">
-              To: <strong>Learn To Pass With Us ({instructorAccount?.name || 'Instructor'})</strong>
-            </div>
-          )}
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Message</label>
-            <textarea
-              rows={4}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="Ask about lesson times, pick-up location, or test prep..."
-              className="w-full rounded-xl border border-slate-300 p-3 text-sm bg-white text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={!recipientId}
-            className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-sm font-bold shadow-sm"
-          >
-            Send Message
-          </button>
-        </form>
+    <div className="bg-zinc-900 text-white rounded-2xl p-5 sm:p-6 shadow-md border border-zinc-800 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <CalendarPlus className="w-5 h-5 text-emerald-400" />
+          <h3 className="text-base font-extrabold">Calendar Integration &amp; Phone Sync</h3>
+        </div>
+        <span className="text-[10px] uppercase tracking-wider font-bold bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full">
+          iOS • Google • Outlook
+        </span>
       </div>
 
-      <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-3">
-        <h3 className="text-base font-extrabold text-slate-900">
-          Inbox &amp; Automated Booking Notifications ({myMessages.length})
-        </h3>
+      <p className="text-xs text-zinc-300 leading-relaxed">
+        Export all your confirmed driving lessons—including pick-up locations and instructor focus notes—directly into Apple Calendar, Google Calendar, or Outlook on your phone:
+      </p>
 
-        {myMessages.length === 0 ? (
-          <p className="text-xs text-slate-500">No messages yet.</p>
-        ) : (
-          <div className="space-y-3 max-h-[540px] overflow-y-auto pr-1">
-            {myMessages.map((msg) => {
-              const isIncoming = msg.toId === currentUser.id;
-              return (
-                <div
-                  key={msg.id}
-                  className={`p-4 rounded-xl border ${
-                    msg.type === 'system'
-                      ? 'bg-emerald-50/60 border-emerald-200'
-                      : isIncoming
-                      ? 'bg-slate-50 border-slate-200'
-                      : 'bg-zinc-900 text-white border-zinc-800'
-                  }`}
+      <div className="space-y-2.5">
+        <button
+          type="button"
+          disabled={myConfirmedLessons.length === 0}
+          onClick={() => {
+            const ics = buildLessonICSContent(myConfirmedLessons, pupil.name);
+            downloadICSFile(`LearnToPassWithUs-AllLessons-${pupil.name.replace(/\s+/g, '')}.ics`, ics);
+            notify(
+              'Calendar File Downloaded',
+              'Tap the downloaded .ics file to add all confirmed lessons to Apple Calendar, Outlook, or Google Calendar.'
+            );
+          }}
+          className="w-full sm:w-auto py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-xs font-extrabold text-white inline-flex items-center justify-center gap-2 shadow-sm transition cursor-pointer"
+        >
+          <Download className="w-4 h-4" />
+          {myConfirmedLessons.length > 0
+            ? `Download All ${myConfirmedLessons.length} Confirmed Lesson(s) (.ics)`
+            : 'No Confirmed Lessons to Export Yet'}
+        </button>
+
+        {myConfirmedLessons.length > 0 && (
+          <div className="pt-3 border-t border-zinc-800 space-y-2">
+            <span className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">
+              Or 1-Tap Add Individual Lessons to Google Calendar:
+            </span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {myConfirmedLessons.map((l) => (
+                <a
+                  key={l.id}
+                  href={buildGoogleCalendarUrl(l)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-xs font-semibold text-zinc-200 transition"
                 >
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <span className="text-xs font-extrabold">
-                      {isIncoming ? `From: ${msg.fromName}` : `To: ${msg.toName}`}
-                    </span>
-                    <span
-                      className={`text-[10px] font-semibold ${
-                        !isIncoming && msg.type !== 'system' ? 'text-zinc-400' : 'text-slate-400'
-                      }`}
-                    >
-                      {new Date(msg.timestamp).toLocaleString('en-GB', {
-                        day: 'numeric',
-                        month: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
-                    </span>
-                  </div>
-                  <p className="text-xs sm:text-sm leading-relaxed">{msg.text}</p>
-                </div>
-              );
-            })}
+                  <span>
+                    {formatReadableDate(l.date)} • {l.startTime} ({l.durationMins / 60}h)
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-emerald-400 font-bold text-[11px]">
+                    + Google Cal <ExternalLink className="w-3 h-3" />
+                  </span>
+                </a>
+              ))}
+            </div>
           </div>
         )}
       </div>
