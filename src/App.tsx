@@ -202,6 +202,48 @@ function minutesToTime(totalMins) {
   return `${h}:${m}`;
 }
 
+function parseLessonDateTime(dateStr, timeStr) {
+  if (!dateStr) return null;
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const [hh, mm] = (timeStr || '09:00').split(':').map(Number);
+  return new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, 0);
+}
+
+async function sendFreeEmailJSReminder({ settings, pupilAccount, lesson }) {
+  if (
+    !settings?.emailJsServiceId ||
+    !settings?.emailJsTemplateId ||
+    !settings?.emailJsPublicKey ||
+    !pupilAccount?.email
+  ) {
+    return false;
+  }
+  try {
+    const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        service_id: settings.emailJsServiceId.trim(),
+        template_id: settings.emailJsTemplateId.trim(),
+        user_id: settings.emailJsPublicKey.trim(),
+        template_params: {
+          to_name: pupilAccount.name,
+          to_email: pupilAccount.email,
+          lesson_date: formatReadableDate(lesson.date),
+          lesson_time: lesson.startTime,
+          pickup_location: lesson.pickupLocation,
+          lesson_focus: lesson.notes || 'DVSA Syllabus Progression',
+          school_name: 'Learn To Pass With Us'
+        }
+      })
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn('EmailJS reminder send failed:', err);
+    return false;
+  }
+}
+
 function findLocationCoords(locStr) {
   const code = (locStr || '').split('-')[0].trim().toUpperCase();
   return (
@@ -578,6 +620,10 @@ export default function App() {
     loadFromStorage('settings', {
       workStart: '07:00',
       workEnd: '18:00',
+      auto24HrReminderEnabled: true,
+      emailJsServiceId: '',
+      emailJsTemplateId: '',
+      emailJsPublicKey: '',
       primaryGoogleConnected: true,
       secondaryIcalUrl: '',
       secondaryShiftEnabled: true,
@@ -738,6 +784,7 @@ export default function App() {
   const [showInstructorAddLessonModal, setShowInstructorAddLessonModal] = useState(false);
   const [selectedPupilForPlan, setSelectedPupilForPlan] = useState('');
   const [copiedFeedUrl, setCopiedFeedUrl] = useState(false);
+  const autoReminderProcessedRef = useRef(new Set());
 
   const notify = (title, description, type = 'success') => {
     setToastNotification({ title, description, type, id: Date.now() });
@@ -795,26 +842,31 @@ export default function App() {
         slots.push({
           time: timeLabel,
           available: false,
-          reason: 'Instructor Unavailable (All Day Holiday/Block)'
+          reason: 'Instructor Unavailable (All Day Holiday / Work Rota)'
         });
         continue;
       }
 
       let blockedReason = null;
+      // Add 15m travel buffer around work rota shifts so lessons can be booked around shifts safely
       for (const block of dayUnavailBlocks) {
-        const bStart = timeToMinutes(block.startTime);
-        const bEnd = timeToMinutes(block.endTime);
+        const isRota = String(block.id || '').startsWith('rota-');
+        const shiftPadding = isRota ? 15 : 0;
+        const bStart = Math.max(0, timeToMinutes(block.startTime) - shiftPadding);
+        const bEnd = Math.min(24 * 60, timeToMinutes(block.endTime) + shiftPadding);
         if (candStart < bEnd && candEnd > bStart) {
-          blockedReason = `Blocked: ${block.title} (${block.startTime}-${block.endTime})`;
+          blockedReason = isRota
+            ? `Unavailable: Work Rota Shift (${block.startTime}–${block.endTime})`
+            : `Blocked: ${block.title} (${block.startTime}–${block.endTime})`;
           break;
         }
       }
 
       if (!blockedReason && hasSecondaryShift) {
-        const sStart = timeToMinutes(settings.secondaryShiftStart || '06:00');
-        const sEnd = timeToMinutes(settings.secondaryShiftEnd || '17:00');
+        const sStart = Math.max(0, timeToMinutes(settings.secondaryShiftStart || '06:00') - 15);
+        const sEnd = Math.min(24 * 60, timeToMinutes(settings.secondaryShiftEnd || '17:00') + 15);
         if (candStart < sEnd && candEnd > sStart) {
-          blockedReason = `2nd Google Cal Shift (${settings.secondaryShiftStart}-${settings.secondaryShiftEnd})`;
+          blockedReason = `Unavailable: Work Shift (${settings.secondaryShiftStart}–${settings.secondaryShiftEnd})`;
         }
       }
 
@@ -1038,18 +1090,73 @@ export default function App() {
     );
   };
 
-  const handleSend24HrReminder = (lesson) => {
+  const handleSend24HrReminder = async (lesson, isAutomatic = false) => {
+    if (autoReminderProcessedRef.current.has(lesson.id)) return;
+    autoReminderProcessedRef.current.add(lesson.id);
+
     setLessons((prev) =>
       prev.map((l) => (l.id === lesson.id ? { ...l, reminderSent: true } : l))
     );
     persistCloudDoc('lessons', lesson.id, { reminderSent: true });
-    sendAutomatedMessage(
-      lesson.pupilId,
-      lesson.pupilName,
-      `24-Hour Reminder from Learn To Pass With Us: Your driving lesson is tomorrow (${formatReadableDate(lesson.date)}) at ${lesson.startTime}. Please confirm in the app that your lesson is still going ahead!`
+
+    const pupilAcc = accounts.find((a) => a.id === lesson.pupilId);
+    const emailSent = await sendFreeEmailJSReminder({
+      settings,
+      pupilAccount: pupilAcc,
+      lesson
+    });
+
+    const reminderMsg = {
+      id: `rem-${lesson.id}`,
+      fromId: 'system-auto-reminder',
+      fromName: 'Learn To Pass With Us (Auto-Reminder)',
+      toId: lesson.pupilId,
+      toName: lesson.pupilName,
+      text: `24-Hour Automatic Reminder: Your driving lesson is coming up on ${formatReadableDate(
+        lesson.date
+      )} at ${lesson.startTime} (${lesson.pickupLocation}). Please tap "Confirm Still Attending" on your Lessons screen!`,
+      timestamp: new Date().toISOString(),
+      type: 'system',
+      read: false
+    };
+
+    setMessages((prev) =>
+      prev.some((m) => m.id === reminderMsg.id) ? prev : [reminderMsg, ...prev]
     );
-    notify('24-Hour Reminder Sent', `Attendance confirmation prompt sent to ${lesson.pupilName}.`);
+    persistCloudDoc('messages', reminderMsg.id, reminderMsg);
+
+    if (!isAutomatic) {
+      notify(
+        emailSent ? '24-Hour In-App & Email Reminder Sent' : '24-Hour In-App Reminder Sent',
+        `Attendance confirmation prompt sent to ${lesson.pupilName}.`
+      );
+    }
   };
+
+  // Automatic 24-Hour Reminder Background Checker (Runs on load & every 60s)
+  useEffect(() => {
+    if (settings.auto24HrReminderEnabled === false) return;
+
+    const checkAndDispatchDueReminders = () => {
+      const nowMs = Date.now();
+      const twentyFourHoursMs = 24 * 60 * 60 * 1000;
+
+      lessons.forEach((l) => {
+        if (l.status !== 'confirmed' || l.reminderSent) return;
+        const lessonStartDt = parseLessonDateTime(l.date, l.startTime);
+        if (!lessonStartDt) return;
+        const msUntilLesson = lessonStartDt.getTime() - nowMs;
+
+        if (msUntilLesson > 0 && msUntilLesson <= twentyFourHoursMs) {
+          handleSend24HrReminder(l, true);
+        }
+      });
+    };
+
+    checkAndDispatchDueReminders();
+    const intervalId = setInterval(checkAndDispatchDueReminders, 60000);
+    return () => clearInterval(intervalId);
+  }, [lessons, settings]);
 
   const handlePupilConfirmAttendance = (lesson) => {
     const instructorAccount = accounts.find((a) => a.role === 'instructor');
@@ -1338,6 +1445,8 @@ export default function App() {
           <PupilDashboardView
             pupil={currentUser}
             lessons={lessons}
+            unavailability={unavailability}
+            rotaEvents={settings.secondaryShiftEnabled ? rotaEvents : []}
             selectedDate={selectedDate}
             setSelectedDate={setSelectedDate}
             settings={settings}
@@ -1944,9 +2053,11 @@ function InstructorDashboardView({
           <div className="flex items-center gap-2">
             <Bell className="w-5 h-5 text-emerald-600" />
             <div>
-              <h3 className="text-base font-extrabold text-slate-900">24-Hr Reminder Check</h3>
+              <h3 className="text-base font-extrabold text-slate-900">24-Hr Auto-Reminders</h3>
               <p className="text-xs text-slate-500">
-                Ask pupils to confirm attendance 24h prior
+                {settings.auto24HrReminderEnabled !== false
+                  ? 'Automatic 24h alerts ON (or send early below)'
+                  : 'Manual mode — configure auto-send in Settings'}
               </p>
             </div>
           </div>
@@ -1978,7 +2089,7 @@ function InstructorDashboardView({
                       className="w-full py-1.5 px-3 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition"
                     >
                       <Send className="w-3.5 h-3.5 text-emerald-400" />
-                      Send 24h Confirmation Prompt
+                      Send Reminder Early Now
                     </button>
                   )}
                 </div>
@@ -1997,6 +2108,8 @@ function InstructorDashboardView({
 function PupilDashboardView({
   pupil,
   lessons,
+  unavailability = [],
+  rotaEvents = [],
   selectedDate,
   setSelectedDate,
   settings,
@@ -2034,22 +2147,34 @@ function PupilDashboardView({
     [myLessons]
   );
 
+  const dayBlockedWindows = useMemo(() => {
+    const blocks = [
+      ...unavailability.filter((u) => u.date === selectedDate),
+      ...rotaEvents.filter((r) => r.date === selectedDate)
+    ];
+    return blocks;
+  }, [unavailability, rotaEvents, selectedDate]);
+
   const computedSlots = useMemo(() => {
     return computeSlotAvailability(
       selectedDate,
       { ...pupil, postcode: pickupLocation },
       durationMins
     );
-  }, [selectedDate, pupil, pickupLocation, durationMins, lessons, settings]);
+  }, [selectedDate, pupil, pickupLocation, durationMins, lessons, settings, unavailability, rotaEvents]);
+
+  const lessonsNeeding24HrConfirm = useMemo(
+    () => myConfirmedLessons.filter((l) => l.reminderSent && !l.pupilConfirmedAttendance),
+    [myConfirmedLessons]
+  );
 
   return (
     <div className="space-y-6">
-      {myConfirmedLessons
-        .filter((l) => l.reminderSent && !l.pupilConfirmedAttendance)
-        .map((remLesson) => (
+      {lessonsNeeding24HrConfirm.length > 0 &&
+        lessonsNeeding24HrConfirm.map((remLesson) => (
           <div
             key={remLesson.id}
-            className="bg-amber-50 border-2 border-amber-400 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-md"
+            className="bg-amber-50 border-2 border-amber-400 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm"
           >
             <div className="flex items-start gap-3">
               <Bell className="w-6 h-6 text-amber-600 flex-shrink-0 mt-0.5" />
@@ -2156,12 +2281,25 @@ function PupilDashboardView({
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-bold text-slate-700">
-                4. Choose Available Start Time ({settings.workStart} – {settings.workEnd})
+                4. Choose Available Start Time ({settings.workStart || '07:00'} – {settings.workEnd || '18:00'})
               </label>
               <span className="text-[11px] text-emerald-700 font-semibold">
                 {computedSlots.filter((s) => s.available).length} slots open
               </span>
             </div>
+
+            {dayBlockedWindows.length > 0 && (
+              <div className="mb-2.5 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900 space-y-1">
+                <span className="font-extrabold block">
+                  Instructor Unavailable Windows on {formatReadableDate(selectedDate)}:
+                </span>
+                {dayBlockedWindows.map((b) => (
+                  <span key={b.id} className="block font-medium">
+                    • {b.allDay ? 'Unavailable All Day' : `${b.startTime} – ${b.endTime}`} (slots around this window remain open)
+                  </span>
+                ))}
+              </div>
+            )}
 
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-60 overflow-y-auto pr-1">
               {computedSlots.map((slot) => {
@@ -3150,6 +3288,12 @@ function CalendarSyncAndUnavailabilityView({
 
   const [workStart, setWorkStart] = useState(settings.workStart || '07:00');
   const [workEnd, setWorkEnd] = useState(settings.workEnd || '18:00');
+  const [auto24HrReminderEnabled, setAuto24HrReminderEnabled] = useState(
+    settings.auto24HrReminderEnabled !== false
+  );
+  const [emailJsServiceId, setEmailJsServiceId] = useState(settings.emailJsServiceId || '');
+  const [emailJsTemplateId, setEmailJsTemplateId] = useState(settings.emailJsTemplateId || '');
+  const [emailJsPublicKey, setEmailJsPublicKey] = useState(settings.emailJsPublicKey || '');
   const [icalUrl, setIcalUrl] = useState(settings.secondaryIcalUrl || '');
   const [shiftEnabled, setShiftEnabled] = useState(Boolean(settings.secondaryShiftEnabled));
   const [shiftStart, setShiftStart] = useState(settings.secondaryShiftStart || '06:00');
@@ -3169,6 +3313,10 @@ function CalendarSyncAndUnavailabilityView({
       ...settings,
       workStart,
       workEnd,
+      auto24HrReminderEnabled,
+      emailJsServiceId,
+      emailJsTemplateId,
+      emailJsPublicKey,
       secondaryIcalUrl: sourceUrl,
       secondaryShiftEnabled: true,
       secondaryShiftStart: shiftStart,
@@ -3269,6 +3417,10 @@ function CalendarSyncAndUnavailabilityView({
       ...settings,
       workStart,
       workEnd,
+      auto24HrReminderEnabled,
+      emailJsServiceId: emailJsServiceId.trim(),
+      emailJsTemplateId: emailJsTemplateId.trim(),
+      emailJsPublicKey: emailJsPublicKey.trim(),
       secondaryIcalUrl: icalUrl,
       secondaryShiftEnabled: shiftEnabled,
       secondaryShiftStart: shiftStart,
@@ -3277,7 +3429,7 @@ function CalendarSyncAndUnavailabilityView({
     };
     setSettings(updated);
     onPersistSettings?.(updated);
-    notify('Schedule & Google Sync Saved', 'Pupil booking slots updated across all devices.');
+    notify('Schedule & Reminder Settings Saved', 'Working hours, calendar sync, and 24-hour reminders updated.');
   };
 
   const handleAddUnavailability = (e) => {
@@ -3499,6 +3651,62 @@ function CalendarSyncAndUnavailabilityView({
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900 font-bold"
                 />
               </div>
+            </div>
+          </div>
+
+          {/* Automatic 24-Hour In-App & Free EmailJS Reminder Config */}
+          <div className="p-4 rounded-xl bg-emerald-50/70 border border-emerald-200 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <h4 className="text-xs font-extrabold uppercase tracking-wider text-emerald-950 flex items-center gap-1.5">
+                <Bell className="w-4 h-4 text-emerald-600" />
+                Automatic 24-Hour Pupil Reminders
+              </h4>
+              <label className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-900 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={auto24HrReminderEnabled}
+                  onChange={(e) => setAuto24HrReminderEnabled(e.target.checked)}
+                  className="w-4 h-4 rounded text-emerald-600"
+                />
+                Auto-Send 24h Prior
+              </label>
+            </div>
+
+            <p className="text-[11px] text-emerald-900 leading-relaxed">
+              Automatically dispatches an in-app attendance confirmation prompt 24 hours before every confirmed lesson. To also send an automatic <strong>email reminder</strong> (100% free up to 200/month via{' '}
+              <a
+                href="https://www.emailjs.com"
+                target="_blank"
+                rel="noreferrer"
+                className="underline font-bold"
+              >
+                emailjs.com
+              </a>
+              ), paste your free EmailJS keys below:
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <input
+                type="text"
+                value={emailJsServiceId}
+                onChange={(e) => setEmailJsServiceId(e.target.value)}
+                placeholder="EmailJS Service ID"
+                className="rounded-xl border border-emerald-200 px-3 py-1.5 text-xs bg-white text-slate-900"
+              />
+              <input
+                type="text"
+                value={emailJsTemplateId}
+                onChange={(e) => setEmailJsTemplateId(e.target.value)}
+                placeholder="EmailJS Template ID"
+                className="rounded-xl border border-emerald-200 px-3 py-1.5 text-xs bg-white text-slate-900"
+              />
+              <input
+                type="text"
+                value={emailJsPublicKey}
+                onChange={(e) => setEmailJsPublicKey(e.target.value)}
+                placeholder="EmailJS Public Key"
+                className="rounded-xl border border-emerald-200 px-3 py-1.5 text-xs bg-white text-slate-900"
+              />
             </div>
           </div>
 
