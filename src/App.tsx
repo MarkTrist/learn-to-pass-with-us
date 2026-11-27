@@ -1,393 +1,345 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  Calendar,
+  Calendar as CalendarIcon,
   Clock,
   MapPin,
-  Car,
-  Users,
-  MessageSquare,
   CheckCircle2,
   XCircle,
-  AlertTriangle,
+  AlertCircle,
+  User,
+  Users,
+  MessageSquare,
+  BookOpen,
+  Settings,
+  LogOut,
   Plus,
   Trash2,
   Download,
-  ExternalLink,
   RefreshCw,
-  ShieldCheck,
-  Bell,
-  Send,
-  Edit3,
+  ChevronLeft,
   ChevronRight,
-  ChevronDown,
-  Info,
-  Navigation,
-  Award,
-  Sparkles,
-  LogOut,
-  UserPlus,
-  Ban,
-  CalendarPlus,
-  Copy,
-  Check,
-  FileText,
-  Settings,
-  ArrowRight,
-  Camera,
-  RotateCcw,
-  Cloud,
-  Database,
   Eye,
-  EyeOff
+  EyeOff,
+  Mail,
+  ShieldCheck,
+  Car,
+  Home,
+  Navigation,
+  ExternalLink,
+  Check
 } from 'lucide-react';
 import { initializeApp, getApps } from 'firebase/app';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import {
   getFirestore,
+  collection,
   doc,
   setDoc,
   deleteDoc,
-  onSnapshot,
-  collection
+  onSnapshot
 } from 'firebase/firestore';
 
 // ============================================================================
-// FIREBASE CLOUD INITIALIZATION (SAFE FALLBACK FOR BOTH PREVIEW & VERCEL)
+// FIREBASE INITIALIZATION
 // ============================================================================
-const firebaseConfig =
-  typeof __firebase_config !== 'undefined' && __firebase_config
-    ? JSON.parse(__firebase_config)
-    : {
-        apiKey: 'AIzaSyDummyKeyForPreviewModeOnly12345',
-        authDomain: 'learn-2-pass-with-us.firebaseapp.com',
-        projectId: 'learn-2-pass-with-us',
-        storageBucket: 'learn-2-pass-with-us.firebasestorage.app',
-        messagingSenderId: '100000000000',
-        appId: '1:100000000000:web:abcdef123456'
-      };
+function getEnvVar(key) {
+  try {
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
+      return import.meta.env[key];
+    }
+  } catch {
+    // Ignore environments without import.meta.env
+  }
+  try {
+    if (typeof process !== 'undefined' && process.env && process.env[key]) {
+      return process.env[key];
+    }
+  } catch {
+    // Ignore non-Node environments
+  }
+  return '';
+}
 
-const appId = typeof __app_id !== 'undefined' && __app_id ? __app_id : 'learn-to-pass-with-us';
+const firebaseConfig = {
+  apiKey: getEnvVar('VITE_FIREBASE_API_KEY') || 'AIzaSyDummyKeyForLocalFallback',
+  authDomain: getEnvVar('VITE_FIREBASE_AUTH_DOMAIN') || 'learn-2-pass-with-us.firebaseapp.com',
+  projectId: getEnvVar('VITE_FIREBASE_PROJECT_ID') || 'learn-2-pass-with-us',
+  storageBucket: getEnvVar('VITE_FIREBASE_STORAGE_BUCKET') || 'learn-2-pass-with-us.appspot.com',
+  messagingSenderId: getEnvVar('VITE_FIREBASE_MESSAGING_SENDER_ID') || '000000000000',
+  appId: getEnvVar('VITE_FIREBASE_APP_ID') || '1:000000000000:web:0000000000000000'
+};
 
-let firebaseApp = null;
-let auth = null;
 let db = null;
-
+let auth = null;
 try {
-  firebaseApp = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
-  auth = getAuth(firebaseApp);
-  db = getFirestore(firebaseApp);
+  const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+  db = getFirestore(app);
+  auth = getAuth(app);
 } catch (err) {
-  console.warn('Firebase initialization running in offline/local storage mode:', err);
+  console.warn('Firebase fallback mode active:', err);
 }
 
 // ============================================================================
-// WEST SUSSEX POSTCODES, DVSA SYLLABUS & HELPER UTILITIES
+// CONSTANTS & CHICHESTER / WEST SUSSEX POSTCODE AREAS
 // ============================================================================
-const WEST_SUSSEX_LOCATIONS = [
-  { code: 'PO19', name: 'Chichester City Centre', lat: 50.8365, lng: -0.7792 },
-  { code: 'PO18', name: 'Bosham / Lavant / Goodwood', lat: 50.8652, lng: -0.8214 },
-  { code: 'PO20', name: 'Selsey / Pagham / Hunston', lat: 50.7685, lng: -0.7851 },
-  { code: 'PO21', name: 'Bognor Regis / Aldwick', lat: 50.7838, lng: -0.6746 },
-  { code: 'PO22', name: 'Felpham / Middleton / Yapton', lat: 50.7955, lng: -0.6312 },
-  { code: 'PO10', name: 'Emsworth / Southbourne / Westbourne', lat: 50.8475, lng: -0.9367 },
-  { code: 'PO9', name: 'Havant / Rowlands Castle', lat: 50.8529, lng: -0.9803 },
-  { code: 'BN18', name: 'Arundel / Fontwell / Walberton', lat: 50.8548, lng: -0.5562 },
-  { code: 'BN17', name: 'Littlehampton / Rustington', lat: 50.8104, lng: -0.5401 },
-  { code: 'GU29', name: 'Midhurst / Cocking / Singleton', lat: 50.9854, lng: -0.7405 }
+const INSTRUCTOR_ACCESS_CODE = 'EN56WXA';
+
+const WEST_SUSSEX_POSTCODES = [
+  'PO19 - Chichester City Centre',
+  'PO18 - Bosham, Fishbourne & Lavant',
+  'PO20 - Selsey, East Wittering & Pagham',
+  'PO21 - Bognor Regis & Aldwick',
+  'PO22 - Felpham, Middleton & Yapton',
+  'BN18 - Arundel, Fontwell & Slindon',
+  'PO10 - Emsworth & Southbourne',
+  'GU29 - Midhurst & Cocking'
 ];
 
-const DVSA_SYLLABUS_SKILLS = [
+const POSTCODE_COORDS = {
+  PO19: { lat: 50.8365, lng: -0.7792 },
+  PO18: { lat: 50.855, lng: -0.835 },
+  PO20: { lat: 50.768, lng: -0.785 },
+  PO21: { lat: 50.785, lng: -0.685 },
+  PO22: { lat: 50.795, lng: -0.635 },
+  BN18: { lat: 50.854, lng: -0.556 },
+  PO10: { lat: 50.847, lng: -0.935 },
+  GU29: { lat: 50.985, lng: -0.74 }
+};
+
+const DVSA_SYLLABUS_TOPICS = [
   {
-    id: 'cockpit-controls',
-    category: 'Stage 1 • Foundations',
-    title: 'Cockpit Drill, Controls & Safety Checks',
-    desc: 'DSSSM routine, clutch bite control, gears, mirrors & signals.'
+    id: 't1',
+    stage: 'Stage 1: Basics & Controls',
+    title: 'Cockpit Drill, Controls & Moving Off/Stopping',
+    desc: 'DSSSM routine, clutch bite point, POM routine & safe kerbs.'
   },
   {
-    id: 'moving-off-stopping',
-    category: 'Stage 1 • Foundations',
-    title: 'Moving Off & Stopping Safely',
-    desc: 'POM routine, kerbside pulls, uphill/downhill starts & angled pull-outs.'
+    id: 't2',
+    stage: 'Stage 1: Basics & Controls',
+    title: 'Steer, Gears & Emerging at T-Junctions',
+    desc: 'MSPSL routine, left/right turns, observation & road positioning.'
   },
   {
-    id: 'junctions-turns',
-    category: 'Stage 2 • Road Craft',
-    title: 'Junctions, Crossroads & Turns',
-    desc: 'MSPSL routine, emerging left/right, T-junctions & box junctions.'
+    id: 't3',
+    stage: 'Stage 2: Traffic & Roundabouts',
+    title: 'Crossroads, Pedestrian Crossings & Traffic Lights',
+    desc: 'Zebra, Pelican, Puffin crossings, filter lights & box junctions.'
   },
   {
-    id: 'roundabouts',
-    category: 'Stage 2 • Road Craft',
-    title: 'Mini, Standard & Multi-Lane Roundabouts',
-    desc: 'Lane discipline, A27 Chichester bypass roundabouts & spiral markings.'
+    id: 't4',
+    stage: 'Stage 2: Traffic & Roundabouts',
+    title: 'Mini & Multi-Lane Roundabouts (Chichester Bypass)',
+    desc: 'Lane discipline, mirror-signal timing, blockers & safe gaps.'
   },
   {
-    id: 'pedestrian-hazards',
-    category: 'Stage 3 • Hazard Awareness',
-    title: 'Pedestrian Crossings & Hazard Perception',
-    desc: 'Zebra, Pelican, Puffin crossings, schools & defensive space.'
+    id: 't5',
+    stage: 'Stage 3: Manoeuvres & Emergency Stop',
+    title: 'Parallel Park & Forward/Reverse Bay Parking',
+    desc: 'Full 360° observation, slow clutch control & accuracy within bay lines.'
   },
   {
-    id: 'dual-carriageways',
-    category: 'Stage 3 • Hazard Awareness',
-    title: 'Dual Carriageways & National Speed Roads',
-    desc: 'Slip-road merging, overtaking, rural bends & progressive speed.'
+    id: 't6',
+    stage: 'Stage 3: Manoeuvres & Emergency Stop',
+    title: 'Pull Up on the Right & Controlled Emergency Stop',
+    desc: 'Safe pull-up on opposite side, reversing 2 car lengths & ABS braking.'
   },
   {
-    id: 'manoeuvres',
-    category: 'Stage 4 • Manoeuvres',
-    title: 'DVSA Reversing Manoeuvres & Emergency Stop',
-    desc: 'Parallel park, forward/reverse bay park, pull up on right & emergency stop.'
+    id: 't7',
+    stage: 'Stage 4: High-Speed & Rural Roads',
+    title: 'Dual Carriageways (A27) & Country Lanes',
+    desc: 'Slip roads, overtaking safety, national speed limits & sharp bends.'
   },
   {
-    id: 'independent-mock',
-    category: 'Stage 5 • Test Ready',
+    id: 't8',
+    stage: 'Stage 5: Test Readiness',
     title: 'Independent Driving (Sat-Nav / Signs) & Mock Test',
-    desc: '20-min independent route, Show Me / Tell Me questions & Chichester test routes.'
+    desc: 'Show Me / Tell Me questions & full 40-minute Chichester mock test.'
   }
 ];
 
-const SKILL_LEVELS = [
-  { value: 0, label: 'Not Started', color: 'bg-slate-100 text-slate-600 border-slate-300', dot: 'bg-slate-400' },
-  { value: 1, label: 'Introduced', color: 'bg-red-50 text-red-700 border-red-300', dot: 'bg-red-500' },
-  { value: 2, label: 'Guided', color: 'bg-amber-50 text-amber-800 border-amber-300', dot: 'bg-amber-500' },
-  { value: 3, label: 'Prompted', color: 'bg-yellow-50 text-yellow-800 border-yellow-400', dot: 'bg-yellow-500' },
-  { value: 4, label: 'Consistent', color: 'bg-blue-50 text-blue-700 border-blue-300', dot: 'bg-blue-600' },
-  { value: 5, label: 'Test Ready', color: 'bg-emerald-50 text-emerald-800 border-emerald-400', dot: 'bg-emerald-600' }
-];
+const DEFAULT_SETTINGS = {
+  workStart: '07:00',
+  workEnd: '18:00',
+  workDays: [1, 2, 3, 4, 5, 6],
+  primaryCalendarUrl: '',
+  workRotaUrl: '',
+  lastRotaSync: '',
+  autoRemindersEnabled: true,
+  emailJsServiceId: '',
+  emailJsTemplateId: '',
+  emailJsPublicKey: ''
+};
 
-function loadFromStorage(key, fallback) {
-  try {
-    const raw = localStorage.getItem(`ltpwu_${key}`);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function saveToStorage(key, value) {
-  try {
-    localStorage.setItem(`ltpwu_${key}`, JSON.stringify(value));
-  } catch {
-    // Ignore storage quota errors
-  }
-}
-
-function getUpcomingDateStr(offsetDays = 0) {
+// ============================================================================
+// DATE, TIME, TRAVEL & ICS PARSING HELPERS
+// ============================================================================
+function getTodayISO() {
   const d = new Date();
-  d.setDate(d.getDate() + offsetDays);
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
 
-function formatReadableDate(dateStr) {
-  if (!dateStr) return '';
-  const [y, m, d] = dateStr.split('-').map(Number);
+function addDaysISO(isoDate, days) {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const dt = new Date(y, m - 1, d + days);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(
+    dt.getDate()
+  ).padStart(2, '0')}`;
+}
+
+function timeToMinutes(t) {
+  if (!t || !t.includes(':')) return 0;
+  const [hh, mm] = t.split(':').map(Number);
+  return hh * 60 + mm;
+}
+
+function minutesToTime(mins) {
+  const clamped = Math.max(0, Math.min(23 * 60 + 59, Math.round(mins)));
+  const hh = String(Math.floor(clamped / 60)).padStart(2, '0');
+  const mm = String(clamped % 60).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+function formatFriendlyDate(isoDate) {
+  if (!isoDate) return '';
+  const [y, m, d] = isoDate.split('-').map(Number);
   const dt = new Date(y, m - 1, d);
-  return dt.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  return dt.toLocaleDateString('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric'
+  });
 }
 
-function timeToMinutes(timeStr) {
-  if (!timeStr) return 0;
-  const [h, m] = timeStr.split(':').map(Number);
-  return (h || 0) * 60 + (m || 0);
+function extractPostcodePrefix(locationStr) {
+  if (!locationStr) return 'PO19';
+  const match = locationStr.toUpperCase().match(/\b(PO19|PO18|PO20|PO21|PO22|BN18|PO10|GU29)\b/);
+  return match ? match[1] : 'PO19';
 }
 
-function minutesToTime(totalMins) {
-  const clamped = Math.max(0, Math.min(23 * 60 + 59, totalMins));
-  const h = String(Math.floor(clamped / 60)).padStart(2, '0');
-  const m = String(clamped % 60).padStart(2, '0');
-  return `${h}:${m}`;
-}
-
-function parseLessonDateTime(dateStr, timeStr) {
-  if (!dateStr) return null;
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const [hh, mm] = (timeStr || '09:00').split(':').map(Number);
-  return new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, 0);
-}
-
-async function sendFreeEmailJSReminder({ settings, pupilAccount, lesson }) {
-  if (
-    !settings?.emailJsServiceId ||
-    !settings?.emailJsTemplateId ||
-    !settings?.emailJsPublicKey ||
-    !pupilAccount?.email
-  ) {
-    return false;
+function calculateTravelMetrics(locA, locB) {
+  const pA = extractPostcodePrefix(locA);
+  const pB = extractPostcodePrefix(locB);
+  if (pA === pB) {
+    return { miles: 2.0, driveMins: 6, bufferedMins: 15 };
   }
-  try {
-    const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        service_id: settings.emailJsServiceId.trim(),
-        template_id: settings.emailJsTemplateId.trim(),
-        user_id: settings.emailJsPublicKey.trim(),
-        template_params: {
-          to_name: pupilAccount.name,
-          to_email: pupilAccount.email,
-          lesson_date: formatReadableDate(lesson.date),
-          lesson_time: lesson.startTime,
-          pickup_location: lesson.pickupLocation,
-          lesson_focus: lesson.notes || 'DVSA Syllabus Progression',
-          school_name: 'Learn To Pass With Us'
-        }
-      })
-    });
-    return res.ok;
-  } catch (err) {
-    console.warn('EmailJS reminder send failed:', err);
-    return false;
+  const cA = POSTCODE_COORDS[pA] || POSTCODE_COORDS.PO19;
+  const cB = POSTCODE_COORDS[pB] || POSTCODE_COORDS.PO19;
+  const dLat = (cA.lat - cB.lat) * 69;
+  const dLng = (cA.lng - cB.lng) * 44;
+  const straightMiles = Math.sqrt(dLat * dLat + dLng * dLng);
+  const roadMiles = Math.max(2.5, Math.round(straightMiles * 1.25 * 10) / 10);
+  const driveMins = Math.ceil(roadMiles * 2.2);
+  const rawBuffer = driveMins + 10;
+  const bufferedMins = Math.ceil(rawBuffer / 15) * 15;
+  return { miles: roadMiles, driveMins, bufferedMins };
+}
+
+function parseICSDateToken(rawVal) {
+  const clean = rawVal.trim();
+  const isUTC = clean.endsWith('Z');
+  const digits = clean.replace(/[^0-9T]/g, '');
+  if (digits.length === 8) {
+    const y = Number(digits.slice(0, 4));
+    const m = Number(digits.slice(4, 6)) - 1;
+    const d = Number(digits.slice(6, 8));
+    return { date: new Date(y, m, d, 0, 0, 0), isAllDay: true };
   }
+  const y = Number(digits.slice(0, 4));
+  const m = Number(digits.slice(4, 6)) - 1;
+  const d = Number(digits.slice(6, 8));
+  const hh = Number(digits.slice(9, 11) || 0);
+  const mm = Number(digits.slice(11, 13) || 0);
+  const dt = isUTC ? new Date(Date.UTC(y, m, d, hh, mm, 0)) : new Date(y, m, d, hh, mm, 0);
+  return { date: dt, isAllDay: false };
 }
 
-function findLocationCoords(locStr) {
-  const code = (locStr || '').split('-')[0].trim().toUpperCase();
-  return (
-    WEST_SUSSEX_LOCATIONS.find((l) => l.code === code) || WEST_SUSSEX_LOCATIONS[0]
-  );
-}
-
-// Calculates road miles, estimated drive minutes, +10m write-up buffer rounded up to 15m slot increment
-function calculateTravelMetrics(fromLocStr, toLocStr) {
-  const from = findLocationCoords(fromLocStr);
-  const to = findLocationCoords(toLocStr);
-  if (from.code === to.code) {
-    return { miles: 1.5, driveMins: 5, rawTotalMins: 15, bufferedMins: 15 };
-  }
-  const R = 3958.8;
-  const dLat = ((to.lat - from.lat) * Math.PI) / 180;
-  const dLng = ((to.lng - from.lng) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((from.lat * Math.PI) / 180) *
-      Math.cos((to.lat * Math.PI) / 180) *
-      Math.sin(dLng / 2) *
-      Math.sin(dLng / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const miles = Math.max(1.5, Number((R * c * 1.28).toFixed(1)));
-  const driveMins = Math.max(6, Math.round((miles / 26) * 60));
-  const rawTotalMins = driveMins + 10;
-  const bufferedMins = Math.ceil(rawTotalMins / 15) * 15;
-  return { miles, driveMins, rawTotalMins, bufferedMins };
-}
-
-// Parses .ics calendar feeds regardless of TRANSP:TRANSPARENT ("Free") status
 function parseICSFeedEvents(icsText) {
+  if (!icsText || !icsText.includes('BEGIN:VCALENDAR')) return [];
   const unfolded = icsText.replace(/\r?\n[ \t]/g, '');
-  const blocks = unfolded.split('BEGIN:VEVENT').slice(1);
-  const results = [];
+  const lines = unfolded.split(/\r?\n/);
+  const events = [];
+  let current = null;
 
-  const formatLocalDate = (dt) =>
-    `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
-  const formatLocalTime = (dt) =>
-    `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+  for (const line of lines) {
+    if (line === 'BEGIN:VEVENT') {
+      current = {};
+    } else if (line === 'END:VEVENT' && current) {
+      if (current.dtstart) {
+        const startInfo = parseICSDateToken(current.dtstart);
+        const endInfo = current.dtend
+          ? parseICSDateToken(current.dtend)
+          : {
+              date: new Date(startInfo.date.getTime() + 60 * 60 * 1000),
+              isAllDay: startInfo.isAllDay
+            };
 
-  const parseICSTimestamp = (rawVal) => {
-    const cleaned = (rawVal || '').trim();
-    if (cleaned.length === 8) {
-      const y = Number(cleaned.slice(0, 4));
-      const mo = Number(cleaned.slice(4, 6)) - 1;
-      const d = Number(cleaned.slice(6, 8));
-      return {
-        date: `${cleaned.slice(0, 4)}-${cleaned.slice(4, 6)}-${cleaned.slice(6, 8)}`,
-        time: '00:00',
-        allDay: true,
-        jsDate: new Date(y, mo, d, 0, 0, 0)
-      };
-    }
-    const match = cleaned.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})?(Z)?$/i);
-    if (!match) return null;
-    const [, y, mo, d, h, mi, s = '00', isUtc] = match;
-    if (isUtc) {
-      const dt = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s)));
-      return {
-        date: formatLocalDate(dt),
-        time: formatLocalTime(dt),
-        allDay: false,
-        jsDate: dt
-      };
-    }
-    const dt = new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s));
-    return {
-      date: `${y}-${mo}-${d}`,
-      time: `${h}:${mi}`,
-      allDay: false,
-      jsDate: dt
-    };
-  };
+        const startDt = startInfo.date;
+        let endDt = endInfo.date;
+        if (endDt <= startDt) {
+          endDt = new Date(startDt.getTime() + (startInfo.isAllDay ? 24 * 3600000 : 3600000));
+        }
 
-  for (let i = 0; i < blocks.length; i++) {
-    const block = blocks[i].split('END:VEVENT')[0];
-    const summaryMatch = block.match(/SUMMARY(?:;[^:]*)?:([^\r\n]+)/);
-    const dtStartMatch = block.match(/DTSTART(?:;[^:]*)?:([^\r\n]+)/);
-    const dtEndMatch = block.match(/DTEND(?:;[^:]*)?:([^\r\n]+)/);
+        let cursor = new Date(startDt.getFullYear(), startDt.getMonth(), startDt.getDate());
+        const lastDay = new Date(endDt.getFullYear(), endDt.getMonth(), endDt.getDate());
+        let guard = 0;
 
-    if (!dtStartMatch) continue;
-    const startParsed = parseICSTimestamp(dtStartMatch[1]);
-    if (!startParsed) continue;
-    const endParsed = dtEndMatch ? parseICSTimestamp(dtEndMatch[1]) : null;
-    const title = summaryMatch ? summaryMatch[1].trim() : 'Coach Driver Rota Shift';
+        while (cursor <= lastDay && guard < 14) {
+          guard++;
+          const isoDate = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(
+            2,
+            '0'
+          )}-${String(cursor.getDate()).padStart(2, '0')}`;
+          const dayStart = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate(), 0, 0);
+          const dayEnd = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate(), 23, 59);
 
-    if (startParsed.allDay) {
-      const startDt = startParsed.jsDate;
-      const endDt = endParsed?.jsDate && endParsed.jsDate > startDt
-        ? endParsed.jsDate
-        : new Date(startDt.getFullYear(), startDt.getMonth(), startDt.getDate() + 1);
-      const cursor = new Date(startDt);
-      let daySpanIdx = 0;
-      while (cursor < endDt && daySpanIdx < 30) {
-        results.push({
-          id: `rota-${formatLocalDate(cursor)}-${i}-${daySpanIdx}`,
-          title,
-          date: formatLocalDate(cursor),
-          allDay: true,
-          startTime: '00:00',
-          endTime: '23:59'
-        });
-        cursor.setDate(cursor.getDate() + 1);
-        daySpanIdx++;
+          const segStart = startDt > dayStart ? startDt : dayStart;
+          const segEnd = endDt < dayEnd ? endDt : dayEnd;
+
+          if (segEnd > segStart || startInfo.isAllDay) {
+            const sTime = startInfo.isAllDay
+              ? '00:00'
+              : `${String(segStart.getHours()).padStart(2, '0')}:${String(
+                  segStart.getMinutes()
+                ).padStart(2, '0')}`;
+            const eTime = startInfo.isAllDay
+              ? '23:59'
+              : `${String(segEnd.getHours()).padStart(2, '0')}:${String(
+                  segEnd.getMinutes()
+                ).padStart(2, '0')}`;
+            events.push({
+              id: `rota-${isoDate}-${sTime}-${events.length}`,
+              date: isoDate,
+              startTime: sTime,
+              endTime: eTime,
+              summary: current.summary || 'Work Rota Shift'
+            });
+          }
+          cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1);
+        }
       }
-    } else if (endParsed && endParsed.date !== startParsed.date && endParsed.jsDate > startParsed.jsDate) {
-      // Split overnight / multi-day shifts across midnight so both days block properly
-      results.push({
-        id: `rota-${startParsed.date}-${startParsed.time}-${i}-a`,
-        title,
-        date: startParsed.date,
-        allDay: false,
-        startTime: startParsed.time,
-        endTime: '23:59'
-      });
-      if (endParsed.time !== '00:00') {
-        results.push({
-          id: `rota-${endParsed.date}-0000-${i}-b`,
-          title,
-          date: endParsed.date,
-          allDay: false,
-          startTime: '00:00',
-          endTime: endParsed.time
-        });
+      current = null;
+    } else if (current) {
+      const colonIdx = line.indexOf(':');
+      if (colonIdx > -1) {
+        const keyPart = line.slice(0, colonIdx).split(';')[0].toUpperCase();
+        const valPart = line.slice(colonIdx + 1);
+        if (keyPart === 'DTSTART') current.dtstart = valPart;
+        if (keyPart === 'DTEND') current.dtend = valPart;
+        if (keyPart === 'SUMMARY') current.summary = valPart.replace(/\\,/g, ',');
       }
-    } else {
-      results.push({
-        id: `rota-${startParsed.date}-${startParsed.time}-${i}`,
-        title,
-        date: startParsed.date,
-        allDay: false,
-        startTime: startParsed.time,
-        endTime: endParsed ? endParsed.time : '17:00'
-      });
     }
   }
-  return results;
+  return events;
 }
 
-// Calendar Export Helpers (Google, Apple .ics, Outlook, Yahoo)
-function formatICSDateTime(dateStr, timeStr) {
-  return `${dateStr.replace(/-/g, '')}T${timeStr.replace(':', '')}00`;
+function formatICSDateTime(isoDate, timeStr) {
+  const dClean = isoDate.replace(/-/g, '');
+  const tClean = timeStr.replace(/:/g, '') + '00';
+  return `${dClean}T${tClean}`;
 }
 
 function buildLessonICSContent(lessonsList, pupilName) {
@@ -400,7 +352,10 @@ function buildLessonICSContent(lessonsList, pupilName) {
 
   lessonsList.forEach((l) => {
     const endStr = minutesToTime(timeToMinutes(l.startTime) + l.durationMins);
-    const desc = `Instructor Focus: ${l.notes || 'Syllabus progression'}${
+    const hasDistinctDropoff = l.dropoffLocation && l.dropoffLocation !== l.pickupLocation;
+    const desc = `Pick-up: ${l.pickupLocation}${
+      hasDistinctDropoff ? ` | Drop-off: ${l.dropoffLocation}` : ''
+    } | Instructor Focus: ${l.notes || 'Syllabus progression'}${
       l.pupilNotes ? ` | Pupil Note: ${l.pupilNotes}` : ''
     }`;
     lines.push(
@@ -410,7 +365,7 @@ function buildLessonICSContent(lessonsList, pupilName) {
       `DTSTART:${formatICSDateTime(l.date, l.startTime)}`,
       `DTEND:${formatICSDateTime(l.date, endStr)}`,
       `SUMMARY:Driving Lesson - Learn To Pass With Us (${pupilName})`,
-      `LOCATION:${l.pickupLocation}`,
+      `LOCATION:${l.pickupLocation}${hasDistinctDropoff ? ` -> Drop-off: ${l.dropoffLocation}` : ''}`,
       `DESCRIPTION:${desc}`,
       'END:VEVENT'
     );
@@ -438,536 +393,414 @@ function buildGoogleCalendarUrl(lesson) {
     lesson.date,
     endStr
   )}`;
+  const hasDistinctDropoff = lesson.dropoffLocation && lesson.dropoffLocation !== lesson.pickupLocation;
   const text = encodeURIComponent('Driving Lesson - Learn To Pass With Us (EN56 WXA)');
   const details = encodeURIComponent(
-    `Next Lesson Focus: ${lesson.notes || 'Syllabus progression'}\nPupil Note: ${
+    `Pick-up: ${lesson.pickupLocation}\nDrop-off: ${
+      lesson.dropoffLocation || lesson.pickupLocation
+    }\nNext Lesson Focus: ${lesson.notes || 'Syllabus progression'}\nPupil Note: ${
       lesson.pupilNotes || 'None'
     }`
   );
-  const location = encodeURIComponent(lesson.pickupLocation);
+  const location = encodeURIComponent(
+    hasDistinctDropoff
+      ? `${lesson.pickupLocation} (Drop-off: ${lesson.dropoffLocation})`
+      : lesson.pickupLocation
+  );
   return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${text}&dates=${dates}&details=${details}&location=${location}`;
-}
-
-function buildOutlookWebUrl(lesson) {
-  const endStr = minutesToTime(timeToMinutes(lesson.startTime) + lesson.durationMins);
-  const startIso = `${lesson.date}T${lesson.startTime}:00`;
-  const endIso = `${lesson.date}T${endStr}:00`;
-  return `https://outlook.live.com/calendar/0/deeplink/compose?subject=${encodeURIComponent(
-    'Driving Lesson - Learn To Pass With Us'
-  )}&startdt=${encodeURIComponent(startIso)}&enddt=${encodeURIComponent(
-    endIso
-  )}&location=${encodeURIComponent(lesson.pickupLocation)}&body=${encodeURIComponent(
-    lesson.notes || 'Driving lesson'
-  )}`;
-}
-
-function buildYahooCalendarUrl(lesson) {
-  const endStr = minutesToTime(timeToMinutes(lesson.startTime) + lesson.durationMins);
-  const st = formatICSDateTime(lesson.date, lesson.startTime);
-  const et = formatICSDateTime(lesson.date, endStr);
-  return `https://calendar.yahoo.com/?v=60&title=${encodeURIComponent(
-    'Driving Lesson - Learn To Pass With Us'
-  )}&st=${st}&et=${et}&in_loc=${encodeURIComponent(
-    lesson.pickupLocation
-  )}&desc=${encodeURIComponent(lesson.notes || 'Driving lesson')}`;
 }
 
 // ============================================================================
 // SUB-COMPONENT: VW GOLF MK5 GTI (EN56 WXA) VEHICLE SHOWCASE CARD
 // ============================================================================
-function VWGolfGTIBadge({
-  customCarPhoto,
-  onUploadCarPhoto,
-  onResetCarPhoto,
-  isInstructor = false,
-  compact = true
-}) {
-  const fileInputRef = useRef(null);
-
-  const handleFileChange = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        onUploadCarPhoto?.(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
+function VWGolfGTIBadge() {
   return (
-    <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-800 text-white border border-zinc-800 shadow-lg p-5">
-      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-600 via-amber-400 to-emerald-500" />
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="space-y-1.5">
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-red-500/15 border border-red-500/30 text-red-300 text-[10px] font-extrabold uppercase tracking-wider">
-            Official Dual-Control Training Car
+    <div className="bg-slate-900 text-white rounded-2xl p-4 sm:p-5 border border-slate-800 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="flex items-center gap-3.5">
+        <div className="w-12 h-12 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0">
+          <Car className="w-6 h-6 text-emerald-400" />
+        </div>
+        <div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-extrabold tracking-tight">
+              Black Volkswagen Golf Mk5 GTI
+            </span>
+            <span className="px-2 py-0.5 rounded bg-amber-400 text-slate-950 font-mono text-xs font-black tracking-wider">
+              EN56 WXA
+            </span>
           </div>
-          <h3 className="text-lg sm:text-xl font-black tracking-tight text-white">
-            Black Volkswagen Golf Mk5 GTI
-          </h3>
-          <p className="text-xs text-zinc-300">
-            Manual 6-Speed • He-Man Dual Controls • Chichester &amp; West Sussex Test Centres
+          <p className="text-xs text-slate-300 mt-0.5">
+            6-Speed Manual • Dual Controls Fitted • Chichester &amp; West Sussex Test Routes
           </p>
-
-          {isInstructor && (
-            <div className="pt-2 flex flex-wrap items-center gap-2">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleFileChange}
-                className="hidden"
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-sm transition"
-              >
-                <Camera className="w-3.5 h-3.5" />
-                {customCarPhoto ? 'Change Car Photo' : 'Upload Your Car Photo'}
-              </button>
-              {customCarPhoto && (
-                <button
-                  type="button"
-                  onClick={onResetCarPhoto}
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold"
-                >
-                  <RotateCcw className="w-3 h-3" /> Reset
-                </button>
-              )}
-            </div>
-          )}
         </div>
-
-        {/* Custom Photo or Crisp Vector Illustration of Black Golf Mk5 GTI (EN56 WXA) */}
-        <div className={`flex-shrink-0 ${compact ? 'sm:w-56' : 'sm:w-64'}`}>
-          {customCarPhoto ? (
-            <img
-              src={customCarPhoto}
-              alt="Black Volkswagen Golf Mk5 GTI EN56 WXA"
-              className="w-full h-32 object-cover rounded-xl border border-zinc-700 shadow-md"
-            />
-          ) : (
-            <div className="bg-zinc-950/90 border border-zinc-800 rounded-xl p-3 flex flex-col items-center">
-              <svg viewBox="0 0 280 110" className="w-full h-24">
-                <rect x="82" y="10" width="116" height="18" rx="4" fill="#ffffff" stroke="#18181b" strokeWidth="2" />
-                <rect x="85" y="13" width="14" height="12" rx="2" fill="#dc2626" />
-                <text x="92" y="22" fontSize="9" fontWeight="900" fill="#ffffff" textAnchor="middle">L</text>
-                <rect x="181" y="13" width="14" height="12" rx="2" fill="#dc2626" />
-                <text x="188" y="22" fontSize="9" fontWeight="900" fill="#ffffff" textAnchor="middle">L</text>
-                <text x="140" y="22" fontSize="7" fontWeight="800" fill="#18181b" textAnchor="middle">Learn To Pass</text>
-                <path
-                  d="M25 74 L35 52 L78 30 L175 28 L228 48 L255 56 L258 76 L25 76 Z"
-                  fill="#18181b"
-                  stroke="#3f3f46"
-                  strokeWidth="2"
-                />
-                <path d="M84 35 L132 34 L132 50 L66 50 Z" fill="#27272a" />
-                <path d="M138 34 L174 34 L204 50 L138 50 Z" fill="#27272a" />
-                <line x1="25" y1="62" x2="256" y2="62" stroke="#dc2626" strokeWidth="2.5" />
-                <rect x="28" y="66" width="44" height="11" rx="2" fill="#facc15" />
-                <text x="50" y="74" fontSize="6.5" fontWeight="900" fill="#09090b" textAnchor="middle">EN56 WXA</text>
-                <circle cx="72" cy="78" r="18" fill="#09090b" stroke="#71717a" strokeWidth="3" />
-                <circle cx="72" cy="78" r="9" fill="#d4d4d8" />
-                <circle cx="212" cy="78" r="18" fill="#09090b" stroke="#71717a" strokeWidth="3" />
-                <circle cx="212" cy="78" r="9" fill="#d4d4d8" />
-              </svg>
-              <span className="mt-1 bg-amber-400 text-zinc-950 font-mono font-black text-[10px] px-2 py-0.5 rounded">
-                EN56 WXA
-              </span>
-            </div>
-          )}
-        </div>
+      </div>
+      <div className="flex items-center gap-2 text-xs font-semibold text-emerald-300 bg-emerald-950/60 border border-emerald-800/60 px-3 py-1.5 rounded-xl">
+        <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+        <span>DVSA Approved Manual Instruction</span>
       </div>
     </div>
   );
 }
 
 // ============================================================================
-// DEFAULT SEED DATA GENERATORS (EMPTY BY DEFAULT FOR PRODUCTION USE)
-// ============================================================================
-function getInitialSeedData() {
-  return {
-    accounts: [],
-    lessons: [],
-    unavailability: [],
-    messages: [],
-    syllabus: {}
-  };
-}
-
-// ============================================================================
 // MAIN APPLICATION COMPONENT
 // ============================================================================
 export default function App() {
-  const seed = useMemo(() => getInitialSeedData(), []);
-
-  // Cloud Auth & Sync Status
-  const [cloudUser, setCloudUser] = useState(null);
   const [cloudReady, setCloudReady] = useState(false);
+  const [accounts, setAccounts] = useState([]);
+  const [lessons, setLessons] = useState([]);
+  const [unavailability, setUnavailability] = useState([]);
+  const [rotaEvents, setRotaEvents] = useState([]);
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [messages, setMessages] = useState([]);
+  const [syllabusProgress, setSyllabusProgress] = useState({});
 
-  // Persisted State (Synced with Cloud Firestore + LocalStorage backup)
-  const [activeUserId, setActiveUserId] = useState(() => loadFromStorage('activeUserId', null));
-  const [accounts, setAccounts] = useState(() => loadFromStorage('accounts', seed.accounts));
-  const [lessons, setLessons] = useState(() => loadFromStorage('lessons', seed.lessons));
-  const [unavailability, setUnavailability] = useState(() => loadFromStorage('unavailability', seed.unavailability));
-  const [messages, setMessages] = useState(() => loadFromStorage('messages', seed.messages));
-  const [syllabusProgress, setSyllabusProgress] = useState(() => loadFromStorage('syllabus', seed.syllabus));
-  const [customCarPhoto, setCustomCarPhoto] = useState(() => loadFromStorage('customCarPhoto', null));
-  const [settings, setSettings] = useState(() =>
-    loadFromStorage('settings', {
-      workStart: '07:00',
-      workEnd: '18:00',
-      auto24HrReminderEnabled: true,
-      emailJsServiceId: '',
-      emailJsTemplateId: '',
-      emailJsPublicKey: '',
-      primaryGoogleConnected: true,
-      secondaryIcalUrl: '',
-      secondaryShiftEnabled: true,
-      secondaryShiftStart: '06:00',
-      secondaryShiftEnd: '17:00',
-      secondaryShiftDays: [],
-      lastRotaSyncAt: null,
-      syncedRotaCount: 0
-    })
-  );
-  const [rotaEvents, setRotaEvents] = useState(() => loadFromStorage('rotaEvents', []));
+  const [currentUserId, setCurrentUserId] = useState(() => {
+    try {
+      return localStorage.getItem('ltpwu_user_id') || null;
+    } catch {
+      return null;
+    }
+  });
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [selectedDate, setSelectedDate] = useState(getTodayISO());
+  const [toast, setToast] = useState(null);
 
-  // 1. Authenticate with Cloud Backend FIRST
+  const [showCreateAccountModal, setShowCreateAccountModal] = useState(false);
+  const [showInstructorAddLessonModal, setShowInstructorAddLessonModal] = useState(false);
+  const [showGoogleGuideModal, setShowGoogleGuideModal] = useState(false);
+  const [confirmModal, setConfirmModal] = useState(null);
+
+  const triggeredRemindersRef = useRef(new Set());
+
+  const notify = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
   useEffect(() => {
-    if (!auth) return;
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (err) {
-        console.error('Cloud authentication error:', err);
-      }
-    };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, (u) => setCloudUser(u));
-    return () => unsubscribe();
-  }, []);
+    try {
+      if (currentUserId) localStorage.setItem('ltpwu_user_id', currentUserId);
+      else localStorage.removeItem('ltpwu_user_id');
+    } catch {
+      // Ignore storage errors
+    }
+  }, [currentUserId]);
 
-  // 2. Real-Time Cloud Firestore Listeners
+  // ============================================================================
+  // FIREBASE REAL-TIME SYNC LISTENERS
+  // ============================================================================
   useEffect(() => {
-    if (!cloudUser || !db) return;
+    if (!auth || !db) return;
+    let unsubAccounts = () => {};
+    let unsubLessons = () => {};
+    let unsubUnavail = () => {};
+    let unsubConfig = () => {};
+    let unsubMsgs = () => {};
+    let unsubSyllabus = () => {};
 
-    const accountsCol = collection(db, 'artifacts', appId, 'public', 'data', 'accounts');
-    const lessonsCol = collection(db, 'artifacts', appId, 'public', 'data', 'lessons');
-    const unavailCol = collection(db, 'artifacts', appId, 'public', 'data', 'unavailability');
-    const messagesCol = collection(db, 'artifacts', appId, 'public', 'data', 'messages');
-    const syllabusCol = collection(db, 'artifacts', appId, 'public', 'data', 'syllabus');
-    const configDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'schoolConfig', 'main');
+    signInAnonymously(auth).catch((err) => console.warn('Anonymous auth warning:', err));
 
-    const unsubAccounts = onSnapshot(
-      accountsCol,
-      (snap) => {
-        setAccounts(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-        setCloudReady(true);
-      },
-      (err) => console.error('Accounts sync error:', err)
-    );
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      if (!user) return;
+      setCloudReady(true);
 
-    const unsubLessons = onSnapshot(
-      lessonsCol,
-      (snap) => {
+      unsubAccounts = onSnapshot(collection(db, 'accounts'), (snap) => {
         const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        list.sort((a, b) => (a.date + a.startTime).localeCompare(b.date + b.startTime));
+        setAccounts(list);
+      });
+
+      unsubLessons = onSnapshot(collection(db, 'lessons'), (snap) => {
+        const list = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => (a.date + a.startTime).localeCompare(b.date + b.startTime));
         setLessons(list);
-      },
-      (err) => console.error('Lessons sync error:', err)
-    );
+      });
 
-    const unsubUnavail = onSnapshot(
-      unavailCol,
-      (snap) => {
-        setUnavailability(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      },
-      (err) => console.error('Unavailability sync error:', err)
-    );
-
-    const unsubMessages = onSnapshot(
-      messagesCol,
-      (snap) => {
+      unsubUnavail = onSnapshot(collection(db, 'unavailability'), (snap) => {
         const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        list.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
-        setMessages(list);
-      },
-      (err) => console.error('Messages sync error:', err)
-    );
+        setUnavailability(list);
+      });
 
-    const unsubSyllabus = onSnapshot(
-      syllabusCol,
-      (snap) => {
+      unsubConfig = onSnapshot(doc(db, 'schoolConfig', 'main'), (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data.settings) setSettings((prev) => ({ ...prev, ...data.settings }));
+          if (Array.isArray(data.rotaEvents)) setRotaEvents(data.rotaEvents);
+        }
+      });
+
+      unsubMsgs = onSnapshot(collection(db, 'messages'), (snap) => {
+        const list = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+        setMessages(list);
+      });
+
+      unsubSyllabus = onSnapshot(collection(db, 'syllabusProgress'), (snap) => {
         const map = {};
         snap.docs.forEach((d) => {
-          map[d.id] = d.data().skills || {};
+          map[d.id] = d.data();
         });
         setSyllabusProgress(map);
-      },
-      (err) => console.error('Syllabus sync error:', err)
-    );
-
-    const unsubConfig = onSnapshot(
-      configDocRef,
-      (snap) => {
-        if (snap.exists()) {
-          const data = snap.data();
-          if (data.settings) setSettings(data.settings);
-          if (data.customCarPhoto !== undefined) setCustomCarPhoto(data.customCarPhoto);
-          if (Array.isArray(data.rotaEvents)) setRotaEvents(data.rotaEvents);
-        } else {
-          setDoc(configDocRef, { settings, customCarPhoto: null, rotaEvents: [] });
-        }
-      },
-      (err) => console.error('School config sync error:', err)
-    );
+      });
+    });
 
     return () => {
+      unsubAuth();
       unsubAccounts();
       unsubLessons();
       unsubUnavail();
-      unsubMessages();
-      unsubSyllabus();
       unsubConfig();
+      unsubMsgs();
+      unsubSyllabus();
     };
-  }, [cloudUser, seed]);
+  }, []);
 
-  // Keep localStorage cache updated
-  useEffect(() => saveToStorage('activeUserId', activeUserId), [activeUserId]);
-  useEffect(() => saveToStorage('accounts', accounts), [accounts]);
-  useEffect(() => saveToStorage('lessons', lessons), [lessons]);
-  useEffect(() => saveToStorage('unavailability', unavailability), [unavailability]);
-  useEffect(() => saveToStorage('messages', messages), [messages]);
-  useEffect(() => saveToStorage('syllabus', syllabusProgress), [syllabusProgress]);
-  useEffect(() => saveToStorage('customCarPhoto', customCarPhoto), [customCarPhoto]);
-  useEffect(() => saveToStorage('settings', settings), [settings]);
-  useEffect(() => saveToStorage('rotaEvents', rotaEvents), [rotaEvents]);
-
-  // Cloud Write Helpers
   const persistCloudDoc = async (colName, docId, payload) => {
-    if (!cloudUser || !db) return;
+    if (!db) return;
     try {
-      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', colName, docId), payload, {
-        merge: true
-      });
+      await setDoc(doc(db, colName, docId), payload, { merge: true });
     } catch (err) {
-      console.error(`Failed to write ${colName}/${docId}:`, err);
+      console.warn(`Cloud save failed for ${colName}/${docId}:`, err);
     }
   };
 
   const removeCloudDoc = async (colName, docId) => {
-    if (!cloudUser || !db) return;
+    if (!db) return;
     try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', colName, docId));
+      await deleteDoc(doc(db, colName, docId));
     } catch (err) {
-      console.error(`Failed to delete ${colName}/${docId}:`, err);
+      console.warn(`Cloud delete failed for ${colName}/${docId}:`, err);
     }
   };
 
-  // UI Navigation & Modal States
-  const [activeTab, setActiveTab] = useState('dashboard');
-  const [selectedDate, setSelectedDate] = useState(getUpcomingDateStr(1));
-  const [toastNotification, setToastNotification] = useState(null);
-  const [confirmModal, setConfirmModal] = useState(null);
-  const [declineModalLesson, setDeclineModalLesson] = useState(null);
-  const [declineReasonText, setDeclineReasonText] = useState('');
-  const [showGoogleGuideModal, setShowGoogleGuideModal] = useState(false);
-  const [showCreateAccountModal, setShowCreateAccountModal] = useState(false);
-  const [showInstructorAddLessonModal, setShowInstructorAddLessonModal] = useState(false);
-  const [selectedPupilForPlan, setSelectedPupilForPlan] = useState('');
-  const [copiedFeedUrl, setCopiedFeedUrl] = useState(false);
-  const autoReminderProcessedRef = useRef(new Set());
-
-  const notify = (title, description, type = 'success') => {
-    setToastNotification({ title, description, type, id: Date.now() });
-    setTimeout(() => {
-      setToastNotification((prev) => (prev && Date.now() - prev.id >= 3800 ? null : prev));
-    }, 4000);
-  };
-
-  const currentUser = useMemo(() => {
-    if (!activeUserId) return null;
-    return accounts.find((a) => a.id === activeUserId) || null;
-  }, [accounts, activeUserId]);
+  const currentUser = useMemo(
+    () => accounts.find((a) => a.id === currentUserId) || null,
+    [accounts, currentUserId]
+  );
 
   const isInstructor = currentUser?.role === 'instructor';
-  const pupilsList = useMemo(() => accounts.filter((a) => a.role === 'pupil'), [accounts]);
+  const pupils = useMemo(() => accounts.filter((a) => a.role === 'pupil'), [accounts]);
 
-  const unreadCount = useMemo(() => {
+  const sendAutomatedMessage = (toId, toName, text, senderRole = 'instructor') => {
+    const newMsg = {
+      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      fromId: currentUser?.id || 'system',
+      fromName: currentUser?.name || 'Learn To Pass With Us',
+      toId,
+      toName,
+      senderRole,
+      text,
+      timestamp: new Date().toISOString(),
+      read: false
+    };
+    setMessages((prev) => [...prev, newMsg]);
+    persistCloudDoc('messages', newMsg.id, newMsg);
+  };
+
+  // ============================================================================
+  // AUTOMATIC 24-HOUR IN-APP & EMAILJS REMINDER ENGINE
+  // ============================================================================
+  useEffect(() => {
+    if (!settings.autoRemindersEnabled || lessons.length === 0) return;
+
+    const nowMs = Date.now();
+    const in24hMs = nowMs + 24 * 60 * 60 * 1000;
+
+    lessons.forEach((l) => {
+      if (l.status !== 'confirmed' || l.reminderSent) return;
+      if (triggeredRemindersRef.current.has(l.id)) return;
+
+      const [y, m, d] = l.date.split('-').map(Number);
+      const [hh, mm] = l.startTime.split(':').map(Number);
+      const lessonStartMs = new Date(y, m - 1, d, hh, mm).getTime();
+
+      if (lessonStartMs > nowMs && lessonStartMs <= in24hMs) {
+        triggeredRemindersRef.current.add(l.id);
+
+        const updatedLesson = { ...l, reminderSent: true };
+        setLessons((prev) => prev.map((item) => (item.id === l.id ? updatedLesson : item)));
+        persistCloudDoc('lessons', l.id, updatedLesson);
+
+        const pupilAcc = accounts.find((a) => a.id === l.pupilId);
+        const msgText = `24-Hour Lesson Reminder: Your ${l.durationMins}-minute manual driving lesson is tomorrow (${formatFriendlyDate(
+          l.date
+        )}) at ${l.startTime}. Pick-up: ${l.pickupLocation}. Please tap "Confirm Still Attending" in your Lessons dashboard.`;
+
+        const autoMsg = {
+          id: `rem-${l.id}`,
+          fromId: 'system-reminder',
+          fromName: 'Learn To Pass With Us (Auto-Reminder)',
+          toId: l.pupilId,
+          toName: l.pupilName,
+          senderRole: 'instructor',
+          text: msgText,
+          timestamp: new Date().toISOString(),
+          read: false
+        };
+        setMessages((prev) => [...prev, autoMsg]);
+        persistCloudDoc('messages', autoMsg.id, autoMsg);
+
+        if (
+          settings.emailJsServiceId &&
+          settings.emailJsTemplateId &&
+          settings.emailJsPublicKey &&
+          pupilAcc?.email
+        ) {
+          fetch('https://api.emailjs.com/api/v1.0/email/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              service_id: settings.emailJsServiceId.trim(),
+              template_id: settings.emailJsTemplateId.trim(),
+              user_id: settings.emailJsPublicKey.trim(),
+              template_params: {
+                to_email: pupilAcc.email,
+                to_name: pupilAcc.name,
+                school_name: 'Learn To Pass With Us',
+                lesson_date: formatFriendlyDate(l.date),
+                lesson_time: l.startTime,
+                pickup_location: l.pickupLocation,
+                lesson_focus: l.notes || 'DVSA Syllabus Progression'
+              }
+            })
+          }).catch((err) => console.warn('EmailJS reminder send error:', err));
+        }
+      }
+    });
+  }, [lessons, accounts, settings]);
+
+  const unreadMessagesCount = useMemo(() => {
     if (!currentUser) return 0;
     return messages.filter((m) => m.toId === currentUser.id && !m.read).length;
   }, [messages, currentUser]);
 
   // ============================================================================
-  // SMART AVAILABILITY & DISTANCE BUFFER ENGINE
+  // SMART AVAILABILITY, ROTA BUFFER (1HR PRE/POST) & DISTANCE BUFFER ENGINE
   // ============================================================================
-  const computeSlotAvailability = (targetDate, pupilAccount, durationMins) => {
+  const computeSlotAvailability = (
+    targetDate,
+    pupilAccount,
+    durationMins,
+    customDropoffLoc = null
+  ) => {
     const startLimit = timeToMinutes(settings.workStart || '07:00');
     const endLimit = timeToMinutes(settings.workEnd || '18:00');
     const slots = [];
 
-    const dayRotaBlocks = settings.secondaryShiftEnabled
-      ? rotaEvents.filter((r) => r.date === targetDate)
-      : [];
-    const dayUnavailBlocks = [
-      ...unavailability.filter((u) => u.date === targetDate),
-      ...dayRotaBlocks
-    ];
-    const isAllDayBlocked = dayUnavailBlocks.some((u) => u.allDay);
-
     const [y, m, d] = targetDate.split('-').map(Number);
     const dayOfWeek = new Date(y, m - 1, d).getDay();
-    const hasSecondaryShift =
-      settings.secondaryShiftEnabled &&
-      Array.isArray(settings.secondaryShiftDays) &&
-      settings.secondaryShiftDays.includes(dayOfWeek);
+    const isWorkingDay = (settings.workDays || [1, 2, 3, 4, 5, 6]).includes(dayOfWeek);
 
-    const dayLessons = lessons
-      .filter((l) => l.date === targetDate && (l.status === 'confirmed' || l.status === 'pending'))
-      .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+    const activeDayLessons = lessons.filter(
+      (l) => l.date === targetDate && (l.status === 'confirmed' || l.status === 'pending')
+    );
 
-    for (let candStart = startLimit; candStart <= endLimit; candStart += 15) {
+    const dayUnavail = unavailability.filter((u) => u.date === targetDate);
+    const dayRota = rotaEvents.filter((r) => r.date === targetDate);
+
+    for (let candStart = startLimit; candStart <= endLimit; candStart += 30) {
       const candEnd = candStart + durationMins;
-      const timeLabel = minutesToTime(candStart);
-
-      if (isAllDayBlocked) {
-        slots.push({
-          time: timeLabel,
-          available: false,
-          reason: 'Instructor Unavailable (All Day Holiday / Work Rota)'
-        });
-        continue;
-      }
-
-      let blockedReason = null;
-      // Add 1-hour (60m) travel/prep buffer before & after work rota shifts
-      for (const block of dayUnavailBlocks) {
-        const isRota = String(block.id || '').startsWith('rota-');
-        const shiftPadding = isRota ? 60 : 0;
-        const bStart = Math.max(0, timeToMinutes(block.startTime) - shiftPadding);
-        const bEnd = Math.min(24 * 60, timeToMinutes(block.endTime) + shiftPadding);
-        if (candStart < bEnd && candEnd > bStart) {
-          blockedReason = isRota
-            ? `Unavailable: Work Rota Shift + 1hr buffer (${block.startTime}–${block.endTime})`
-            : `Blocked: ${block.title} (${block.startTime}–${block.endTime})`;
-          break;
-        }
-      }
-
-      if (!blockedReason && hasSecondaryShift) {
-        const sStart = Math.max(0, timeToMinutes(settings.secondaryShiftStart || '06:00') - 60);
-        const sEnd = Math.min(24 * 60, timeToMinutes(settings.secondaryShiftEnd || '17:00') + 60);
-        if (candStart < sEnd && candEnd > sStart) {
-          blockedReason = `Unavailable: Work Shift + 1hr buffer (${settings.secondaryShiftStart}–${settings.secondaryShiftEnd})`;
-        }
-      }
-
-      if (!blockedReason && hasSecondaryShift) {
-        const sStart = Math.max(0, timeToMinutes(settings.secondaryShiftStart || '06:00') - 15);
-        const sEnd = Math.min(24 * 60, timeToMinutes(settings.secondaryShiftEnd || '17:00') + 15);
-        if (candStart < sEnd && candEnd > sStart) {
-          blockedReason = `Unavailable: Work Shift (${settings.secondaryShiftStart}–${settings.secondaryShiftEnd})`;
-        }
-      }
-
-      if (blockedReason) {
-        slots.push({ time: timeLabel, available: false, reason: blockedReason });
-        continue;
-      }
-
       let conflictReason = null;
-      let travelNote = null;
+      let travelNote = '';
 
-      for (const existing of dayLessons) {
-        const exStart = timeToMinutes(existing.startTime);
-        const exEnd = exStart + existing.durationMins;
+      if (!isWorkingDay) {
+        conflictReason = 'Instructor non-working day';
+      }
 
-        if (candStart < exEnd && candEnd > exStart) {
-          conflictReason = `Booked (${existing.startTime}-${minutesToTime(exEnd)})`;
-          break;
-        }
-
-        const isSamePupil = pupilAccount && existing.pupilId === pupilAccount.id;
-        const pupilLoc = pupilAccount?.postcode || 'PO19 - Chichester City Centre';
-
-        if (candStart >= exEnd) {
-          if (isSamePupil && candStart === exEnd) {
-            travelNote = 'Consecutive slot with same pupil (0m travel gap)';
-          } else {
-            const metrics = calculateTravelMetrics(existing.dropoffLocation, pupilLoc);
-            const requiredGap = isSamePupil ? 15 : metrics.bufferedMins;
-            const actualGap = candStart - exEnd;
-            if (actualGap < requiredGap) {
-              conflictReason = `Need ${requiredGap}m buffer (${metrics.miles} mi from ${existing.dropoffLocation.split('-')[0].trim()} + 10m notes, rounded up)`;
-              break;
-            } else if (actualGap <= requiredGap + 30) {
-              travelNote = `${metrics.miles} mi from prev lesson (${metrics.driveMins}m drive + 10m notes = ${metrics.bufferedMins}m buffer)`;
-            }
+      if (!conflictReason) {
+        for (const u of dayUnavail) {
+          const uStart = u.allDay ? 0 : timeToMinutes(u.startTime);
+          const uEnd = u.allDay ? 24 * 60 : timeToMinutes(u.endTime);
+          if (candStart < uEnd && candEnd > uStart) {
+            conflictReason = u.reason || 'Instructor unavailable';
+            break;
           }
         }
+      }
 
-        if (candEnd <= exStart) {
-          if (isSamePupil && candEnd === exStart) {
-            travelNote = 'Consecutive slot before existing lesson';
-          } else {
-            const metrics = calculateTravelMetrics(pupilLoc, existing.pickupLocation);
-            const requiredGap = isSamePupil ? 15 : metrics.bufferedMins;
-            const actualGap = exStart - candEnd;
-            if (actualGap < requiredGap) {
-              conflictReason = `Leaves only ${actualGap}m before next lesson (${requiredGap}m needed to reach ${existing.pickupLocation.split('-')[0].trim()})`;
-              break;
+      if (!conflictReason) {
+        for (const r of dayRota) {
+          const rStartBuffered = Math.max(0, timeToMinutes(r.startTime) - 60);
+          const rEndBuffered = Math.min(24 * 60, timeToMinutes(r.endTime) + 60);
+          if (candStart < rEndBuffered && candEnd > rStartBuffered) {
+            conflictReason = 'Unavailable (Work rota shift + 1hr buffer)';
+            break;
+          }
+        }
+      }
+
+      if (!conflictReason) {
+        for (const existing of activeDayLessons) {
+          const exStart = timeToMinutes(existing.startTime);
+          const exEnd = exStart + existing.durationMins;
+
+          if (candStart < exEnd && candEnd > exStart) {
+            conflictReason = 'Already booked';
+            break;
+          }
+
+          const isSamePupil = pupilAccount && existing.pupilId === pupilAccount.id;
+          const pupilPickupLoc = pupilAccount?.postcode || 'PO19 - Chichester City Centre';
+          const pupilDropoffLoc = customDropoffLoc || pupilPickupLoc;
+
+          if (candStart >= exEnd) {
+            if (isSamePupil && candStart === exEnd) {
+              travelNote = 'Consecutive slot with same pupil (0m travel gap)';
+            } else {
+              const metrics = calculateTravelMetrics(existing.dropoffLocation, pupilPickupLoc);
+              const requiredGap = isSamePupil ? 15 : metrics.bufferedMins;
+              const actualGap = candStart - exEnd;
+              if (actualGap < requiredGap) {
+                conflictReason = `Need ${requiredGap}m travel buffer from ${existing.dropoffLocation
+                  .split('-')[0]
+                  .trim()}`;
+                break;
+              } else if (actualGap <= requiredGap + 30) {
+                travelNote = `${metrics.miles} mi from prev lesson (${metrics.bufferedMins}m buffer)`;
+              }
+            }
+          }
+
+          if (candEnd <= exStart) {
+            if (isSamePupil && candEnd === exStart) {
+              travelNote = 'Consecutive slot before existing lesson';
+            } else {
+              const metrics = calculateTravelMetrics(pupilDropoffLoc, existing.pickupLocation);
+              const requiredGap = isSamePupil ? 15 : metrics.bufferedMins;
+              const actualGap = exStart - candEnd;
+              if (actualGap < requiredGap) {
+                conflictReason = `Leaves only ${actualGap}m before next lesson (${requiredGap}m needed)`;
+                break;
+              }
             }
           }
         }
       }
 
-      if (conflictReason) {
-        slots.push({ time: timeLabel, available: false, reason: conflictReason });
-      } else {
-        slots.push({
-          time: timeLabel,
-          available: true,
-          travelNote: travelNote || 'Clear schedule & travel buffer verified'
-        });
-      }
+      slots.push({
+        time: minutesToTime(candStart),
+        endTime: minutesToTime(candEnd),
+        available: !conflictReason,
+        reason: conflictReason,
+        travelNote
+      });
     }
 
     return slots;
   };
 
   // ============================================================================
-  // CORE ACTIONS
+  // BOOKING, LESSON & ACCOUNT HANDLERS
   // ============================================================================
-  const sendAutomatedMessage = (toId, toName, text, type = 'system') => {
-    const newMsg = {
-      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      fromId: currentUser?.id || 'instructor-main',
-      fromName: isInstructor ? 'Learn To Pass With Us' : (currentUser?.name || 'Pupil'),
-      toId,
-      toName,
-      text,
-      timestamp: new Date().toISOString(),
-      type,
-      read: false
-    };
-    setMessages((prev) => [newMsg, ...prev]);
-    persistCloudDoc('messages', newMsg.id, newMsg);
-  };
-
   const handleCreateBookingRequest = ({
     pupilAccount,
     date,
     startTime,
     durationMins,
     pickupLocation,
+    dropoffLocation,
     pupilNotes,
     notes,
     isOutOfHours = false,
@@ -978,6 +811,8 @@ export default function App() {
     const instructorAccount = accounts.find((a) => a.role === 'instructor');
     const instructorTargetId = instructorAccount?.id || 'instructor-main';
     const instructorTargetName = instructorAccount?.name || 'Instructor';
+    const resolvedDropoff = dropoffLocation || pickupLocation;
+    const hasDistinctDropoff = resolvedDropoff !== pickupLocation;
 
     const newLesson = {
       id: `lesson-${Date.now()}`,
@@ -987,7 +822,7 @@ export default function App() {
       startTime,
       durationMins,
       pickupLocation,
-      dropoffLocation: pickupLocation,
+      dropoffLocation: resolvedDropoff,
       status,
       notes: defaultFocus,
       pupilNotes: pupilNotes || '',
@@ -1005,19 +840,26 @@ export default function App() {
       sendAutomatedMessage(
         pupilAccount.id,
         pupilAccount.name,
-        `Your lesson with Learn To Pass With Us on ${formatReadableDate(date)} at ${startTime} (${durationMins / 60} hr${durationMins > 60 ? 's' : ''}) has been booked & confirmed! Pick-up: ${pickupLocation}. Next lesson focus: ${defaultFocus}.`
+        `Instructor directly scheduled & confirmed your ${durationMins}-minute driving lesson on ${formatFriendlyDate(
+          date
+        )} at ${startTime}. Pick-up: ${pickupLocation}${
+          hasDistinctDropoff ? ` | Drop-off: ${resolvedDropoff}` : ''
+        }. Focus: ${defaultFocus}.`,
+        'instructor'
       );
-      notify('Lesson Added & Confirmed', `Added ${pupilAccount.name} on ${formatReadableDate(date)} at ${startTime}.`);
+      notify(`Lesson confirmed for ${pupilAccount.name} on ${formatFriendlyDate(date)}.`);
     } else {
       sendAutomatedMessage(
         instructorTargetId,
         instructorTargetName,
-        `New ${isOutOfHours ? 'OUT-OF-HOURS ' : ''}booking request from ${pupilAccount.name} for ${formatReadableDate(date)} at ${startTime} (${durationMins / 60}h) in ${pickupLocation}.`
+        `New booking request from ${pupilAccount.name} for ${formatFriendlyDate(
+          date
+        )} at ${startTime} (${durationMins}m). Pick-up: ${pickupLocation}${
+          hasDistinctDropoff ? ` | Drop-off: ${resolvedDropoff}` : ''
+        }.${pupilNotes ? ` Note: "${pupilNotes}"` : ''}`,
+        'pupil'
       );
-      notify(
-        'Booking Request Sent!',
-        `Your ${startTime} slot on ${formatReadableDate(date)} is awaiting instructor approval.`
-      );
+      notify('Booking request sent! Your instructor will review and confirm shortly.');
     }
   };
 
@@ -1025,307 +867,196 @@ export default function App() {
     setLessons((prev) =>
       prev.map((l) => (l.id === lesson.id ? { ...l, status: 'confirmed' } : l))
     );
-    persistCloudDoc('lessons', lesson.id, { status: 'confirmed' });
-
-    const confirmMsg = `Your lesson with Learn To Pass With Us on ${formatReadableDate(lesson.date)} at ${lesson.startTime} (${lesson.durationMins / 60} hr${lesson.durationMins > 60 ? 's' : ''}) is confirmed! Pick-up: ${lesson.pickupLocation}. Next lesson focus: ${lesson.notes || 'Syllabus progression'}.`;
-
-    sendAutomatedMessage(lesson.pupilId, lesson.pupilName, confirmMsg, 'system');
-    notify('Lesson Confirmed', `Automated confirmation sent to ${lesson.pupilName}.`);
-  };
-
-  const handleDeclineLessonSubmit = () => {
-    if (!declineModalLesson) return;
-    const lesson = declineModalLesson;
-    const reason = declineReasonText.trim() || 'Schedule / travel distance conflict with adjacent booking.';
-
-    setLessons((prev) =>
-      prev.map((l) =>
-        l.id === lesson.id ? { ...l, status: 'declined', declineReason: reason } : l
-      )
+    persistCloudDoc('lessons', lesson.id, { ...lesson, status: 'confirmed' });
+    sendAutomatedMessage(
+      lesson.pupilId,
+      lesson.pupilName,
+      `Your ${lesson.durationMins}-minute driving lesson on ${formatFriendlyDate(
+        lesson.date
+      )} at ${lesson.startTime} has been CONFIRMED.`,
+      'instructor'
     );
-    persistCloudDoc('lessons', lesson.id, { status: 'declined', declineReason: reason });
-
-    const declineMsg = `Your lesson request for ${formatReadableDate(lesson.date)} at ${lesson.startTime} (${lesson.durationMins / 60}h) could not be confirmed. Instructor note: "${reason}"`;
-
-    sendAutomatedMessage(lesson.pupilId, lesson.pupilName, declineMsg, 'system');
-    notify('Request Declined', `Decline notice and your note sent to ${lesson.pupilName}.`, 'info');
-    setDeclineModalLesson(null);
-    setDeclineReasonText('');
+    notify(`Confirmed ${lesson.pupilName}'s lesson.`);
   };
 
-  const handleCancelLesson = (lesson, cancelledBy = 'instructor') => {
-    const instructorAccount = accounts.find((a) => a.role === 'instructor');
-    const instructorTargetId = instructorAccount?.id || 'instructor-main';
-    const instructorTargetName = instructorAccount?.name || 'Instructor';
+  const handleRejectLesson = (lesson) => {
+    setLessons((prev) =>
+      prev.map((l) => (l.id === lesson.id ? { ...l, status: 'rejected' } : l))
+    );
+    persistCloudDoc('lessons', lesson.id, { ...lesson, status: 'rejected' });
+    sendAutomatedMessage(
+      lesson.pupilId,
+      lesson.pupilName,
+      `Your lesson request for ${formatFriendlyDate(lesson.date)} at ${
+        lesson.startTime
+      } could not be accommodated. Please choose another available slot.`,
+      'instructor'
+    );
+    notify(`Declined request from ${lesson.pupilName}.`, 'info');
+  };
 
+  const handleCancelLesson = (lesson) => {
     setLessons((prev) =>
       prev.map((l) => (l.id === lesson.id ? { ...l, status: 'cancelled' } : l))
     );
-    persistCloudDoc('lessons', lesson.id, { status: 'cancelled' });
-
-    if (cancelledBy === 'instructor') {
-      sendAutomatedMessage(
-        lesson.pupilId,
-        lesson.pupilName,
-        `Update from Learn To Pass With Us: Your lesson on ${formatReadableDate(lesson.date)} at ${lesson.startTime} has been cancelled. Please check available slots to rebook.`
-      );
-    } else {
-      sendAutomatedMessage(
-        instructorTargetId,
-        instructorTargetName,
-        `${lesson.pupilName} cancelled their lesson on ${formatReadableDate(lesson.date)} at ${lesson.startTime} (${lesson.pickupLocation}).`
-      );
-    }
-
-    const candidatePupils = pupilsList.filter((p) => p.id !== lesson.pupilId);
-    let notifiedCount = 0;
-
-    for (const p of candidatePupils) {
-      const metrics = calculateTravelMetrics(lesson.pickupLocation, p.postcode);
-      if (metrics.miles <= 11) {
-        notifiedCount++;
-        sendAutomatedMessage(
-          p.id,
-          p.name,
-          `Last-Minute Slot Available! A ${lesson.durationMins / 60}-hour slot just opened on ${formatReadableDate(lesson.date)} at ${lesson.startTime} near your area (${metrics.miles} mi from ${lesson.pickupLocation.split('-')[0].trim()}). Book now in the app before it's taken!`
-        );
-      }
-    }
-
-    notify(
-      'Lesson Cancelled & Slot Broadcasted',
-      `Notified ${notifiedCount} nearby pupil(s) within reachable travel distance of ${lesson.pickupLocation.split('-')[0].trim()}.`
+    persistCloudDoc('lessons', lesson.id, { ...lesson, status: 'cancelled' });
+    const targetId = isInstructor
+      ? lesson.pupilId
+      : accounts.find((a) => a.role === 'instructor')?.id || 'instructor-main';
+    const targetName = isInstructor
+      ? lesson.pupilName
+      : accounts.find((a) => a.role === 'instructor')?.name || 'Instructor';
+    sendAutomatedMessage(
+      targetId,
+      targetName,
+      `Lesson on ${formatFriendlyDate(lesson.date)} at ${lesson.startTime} was cancelled by ${
+        currentUser.name
+      }.`,
+      isInstructor ? 'instructor' : 'pupil'
     );
+    notify('Lesson cancelled.', 'info');
   };
 
-  const handleSend24HrReminder = async (lesson, isAutomatic = false) => {
-    if (autoReminderProcessedRef.current.has(lesson.id)) return;
-    autoReminderProcessedRef.current.add(lesson.id);
-
-    setLessons((prev) =>
-      prev.map((l) => (l.id === lesson.id ? { ...l, reminderSent: true } : l))
-    );
-    persistCloudDoc('lessons', lesson.id, { reminderSent: true });
-
-    const pupilAcc = accounts.find((a) => a.id === lesson.pupilId);
-    const emailSent = await sendFreeEmailJSReminder({
-      settings,
-      pupilAccount: pupilAcc,
-      lesson
-    });
-
-    const reminderMsg = {
-      id: `rem-${lesson.id}`,
-      fromId: 'system-auto-reminder',
-      fromName: 'Learn To Pass With Us (Auto-Reminder)',
-      toId: lesson.pupilId,
-      toName: lesson.pupilName,
-      text: `24-Hour Automatic Reminder: Your driving lesson is coming up on ${formatReadableDate(
-        lesson.date
-      )} at ${lesson.startTime} (${lesson.pickupLocation}). Please tap "Confirm Still Attending" on your Lessons screen!`,
-      timestamp: new Date().toISOString(),
-      type: 'system',
-      read: false
-    };
-
-    setMessages((prev) =>
-      prev.some((m) => m.id === reminderMsg.id) ? prev : [reminderMsg, ...prev]
-    );
-    persistCloudDoc('messages', reminderMsg.id, reminderMsg);
-
-    if (!isAutomatic) {
-      notify(
-        emailSent ? '24-Hour In-App & Email Reminder Sent' : '24-Hour In-App Reminder Sent',
-        `Attendance confirmation prompt sent to ${lesson.pupilName}.`
-      );
-    }
-  };
-
-  // Automatic 24-Hour Reminder Background Checker (Runs on load & every 60s)
-  useEffect(() => {
-    if (settings.auto24HrReminderEnabled === false) return;
-
-    const checkAndDispatchDueReminders = () => {
-      const nowMs = Date.now();
-      const twentyFourHoursMs = 24 * 60 * 60 * 1000;
-
-      lessons.forEach((l) => {
-        if (l.status !== 'confirmed' || l.reminderSent) return;
-        const lessonStartDt = parseLessonDateTime(l.date, l.startTime);
-        if (!lessonStartDt) return;
-        const msUntilLesson = lessonStartDt.getTime() - nowMs;
-
-        if (msUntilLesson > 0 && msUntilLesson <= twentyFourHoursMs) {
-          handleSend24HrReminder(l, true);
-        }
-      });
-    };
-
-    checkAndDispatchDueReminders();
-    const intervalId = setInterval(checkAndDispatchDueReminders, 60000);
-    return () => clearInterval(intervalId);
-  }, [lessons, settings]);
-
-  const handlePupilConfirmAttendance = (lesson) => {
-    const instructorAccount = accounts.find((a) => a.role === 'instructor');
-    const instructorTargetId = instructorAccount?.id || 'instructor-main';
-    const instructorTargetName = instructorAccount?.name || 'Instructor';
-
+  const handleConfirmAttendance = (lesson) => {
     setLessons((prev) =>
       prev.map((l) => (l.id === lesson.id ? { ...l, pupilConfirmedAttendance: true } : l))
     );
-    persistCloudDoc('lessons', lesson.id, { pupilConfirmedAttendance: true });
-    sendAutomatedMessage(
-      instructorTargetId,
-      instructorTargetName,
-      `${lesson.pupilName} confirmed attendance for tomorrow's lesson (${formatReadableDate(lesson.date)} at ${lesson.startTime}).`
-    );
-    notify('Attendance Confirmed', 'Your instructor has been notified.');
+    persistCloudDoc('lessons', lesson.id, { ...lesson, pupilConfirmedAttendance: true });
+    notify('Attendance confirmed! See you at your pick-up location.');
   };
 
-  const handleUpdateLessonNotes = (lessonId, newInstructorNotes, newPupilNotes) => {
-    setLessons((prev) =>
-      prev.map((l) => {
-        if (l.id !== lessonId) return l;
-        const updated = {
-          ...l,
-          notes: typeof newInstructorNotes === 'string' ? newInstructorNotes : l.notes,
-          pupilNotes: typeof newPupilNotes === 'string' ? newPupilNotes : l.pupilNotes
-        };
-        persistCloudDoc('lessons', lessonId, {
-          notes: updated.notes,
-          pupilNotes: updated.pupilNotes
-        });
-        return updated;
-      })
+  const handleUpdateAccountDetails = (accountId, updates) => {
+    setAccounts((prev) =>
+      prev.map((acc) => (acc.id === accountId ? { ...acc, ...updates } : acc))
     );
-    notify('Calendar Notes Updated', 'Saved and synced to calendar exports.');
-  };
-
-  const handleDeleteAccount = (targetAccount) => {
-    setAccounts((prev) => prev.filter((a) => a.id !== targetAccount.id));
-    removeCloudDoc('accounts', targetAccount.id);
-
-    setLessons((prev) =>
-      prev.map((l) => {
-        if (l.pupilId === targetAccount.id && (l.status === 'confirmed' || l.status === 'pending')) {
-          persistCloudDoc('lessons', l.id, { status: 'cancelled' });
-          return { ...l, status: 'cancelled' };
-        }
-        return l;
-      })
-    );
-
-    if (activeUserId === targetAccount.id) {
-      setActiveUserId(null);
+    const target = accounts.find((a) => a.id === accountId);
+    if (target) {
+      persistCloudDoc('accounts', accountId, { ...target, ...updates });
     }
-    notify('Account Deleted', `${targetAccount.name}'s account has been permanently removed.`, 'info');
-    setConfirmModal(null);
   };
 
+  const handleCreateAccount = (newAcc) => {
+    setAccounts((prev) => [...prev, newAcc]);
+    persistCloudDoc('accounts', newAcc.id, newAcc);
+    notify(`Account created for ${newAcc.name}.`);
+  };
+
+  const handleDeleteAccount = (acc) => {
+    setAccounts((prev) => prev.filter((a) => a.id !== acc.id));
+    removeCloudDoc('accounts', acc.id);
+    if (acc.role === 'pupil') {
+      lessons
+        .filter((l) => l.pupilId === acc.id && (l.status === 'confirmed' || l.status === 'pending'))
+        .forEach((l) => {
+          const cancelled = { ...l, status: 'cancelled' };
+          persistCloudDoc('lessons', l.id, cancelled);
+        });
+      setLessons((prev) =>
+        prev.map((l) =>
+          l.pupilId === acc.id && (l.status === 'confirmed' || l.status === 'pending')
+            ? { ...l, status: 'cancelled' }
+            : l
+        )
+      );
+    }
+    notify(`${acc.name}'s account has been deleted.`, 'info');
+  };
+
+  const handleToggleSyllabusTopic = (pupilId, topicId, nextStatus) => {
+    setSyllabusProgress((prev) => {
+      const currentForPupil = prev[pupilId] || {};
+      const updatedForPupil = { ...currentForPupil, [topicId]: nextStatus };
+      persistCloudDoc('syllabusProgress', pupilId, updatedForPupil);
+      return { ...prev, [pupilId]: updatedForPupil };
+    });
+  };
+
+  // ============================================================================
+  // AUTH SCREEN (WHEN NOT LOGGED IN)
+  // ============================================================================
   if (!currentUser) {
     return (
-      <>
-        <AuthPortalView
-          accounts={accounts}
-          customCarPhoto={customCarPhoto}
-          cloudReady={cloudReady}
-          onLoginSuccess={(acc) => {
-            setActiveUserId(acc.id);
-            setActiveTab('dashboard');
-            notify('Signed In', `Welcome back, ${acc.name}!`);
-          }}
-          onRegisterAccount={(newAcc) => {
-            setAccounts((prev) => [...prev, newAcc]);
-            persistCloudDoc('accounts', newAcc.id, newAcc);
-            setActiveUserId(newAcc.id);
-            setActiveTab('dashboard');
-            notify('Account Created', `Welcome to Learn To Pass With Us, ${newAcc.name}!`);
-          }}
-        />
-        {toastNotification && (
-          <div className="fixed bottom-4 right-4 z-50 max-w-sm w-full bg-zinc-900 text-white border border-zinc-700 rounded-2xl shadow-2xl p-4 flex items-start gap-3">
-            <div className="p-2 rounded-xl flex-shrink-0 bg-emerald-500/20 text-emerald-400">
-              <Bell className="w-5 h-5" />
-            </div>
-            <div className="flex-1">
-              <h4 className="text-sm font-bold">{toastNotification.title}</h4>
-              <p className="text-xs text-zinc-300 mt-0.5 leading-relaxed">{toastNotification.description}</p>
-            </div>
-          </div>
-        )}
-      </>
+      <AuthScreen
+        accounts={accounts}
+        onLoginSuccess={(acc) => {
+          setCurrentUserId(acc.id);
+          setActiveTab('dashboard');
+          notify(`Welcome back, ${acc.name}!`);
+        }}
+        onRegisterSuccess={(newAcc) => {
+          setAccounts((prev) => [...prev, newAcc]);
+          persistCloudDoc('accounts', newAcc.id, newAcc);
+          setCurrentUserId(newAcc.id);
+          setActiveTab('dashboard');
+          notify(`Welcome to Learn To Pass With Us, ${newAcc.name}!`);
+        }}
+        cloudReady={cloudReady}
+      />
     );
   }
 
-  const navTabs = [
-    { id: 'dashboard', label: isInstructor ? 'Home' : 'Lessons' },
-    { id: 'diary', label: 'Diary' },
-    { id: 'syllabus', label: isInstructor ? 'Pupils' : 'Progress' },
-    {
-      id: 'messages',
-      label: 'Messages',
-      badge: unreadCount
-    }
-  ];
+  const navTabs = isInstructor
+    ? [
+        { id: 'dashboard', label: 'Home' },
+        { id: 'diary', label: 'Diary' },
+        { id: 'syllabus', label: 'Pupils' },
+        { id: 'messages', label: 'Messages', badge: unreadMessagesCount }
+      ]
+    : [
+        { id: 'dashboard', label: 'Lessons' },
+        { id: 'diary', label: 'Diary' },
+        { id: 'syllabus', label: 'Progress' },
+        { id: 'messages', label: 'Messages', badge: unreadMessagesCount }
+      ];
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col font-sans">
-      <header className="bg-zinc-950 text-white border-b border-zinc-800 sticky top-0 z-40 shadow-lg">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
-          {/* Left: Brand Logo & Title */}
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-zinc-900 border-2 border-zinc-700 flex items-center justify-center shadow-md flex-shrink-0">
-              <span className="text-red-500 font-black text-xl leading-none">L</span>
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
+      {toast && (
+        <div
+          className={`fixed bottom-4 right-4 z-50 px-4 py-3 rounded-xl shadow-lg text-sm font-semibold flex items-center gap-2 border ${
+            toast.type === 'error'
+              ? 'bg-rose-600 text-white border-rose-500'
+              : toast.type === 'info'
+              ? 'bg-slate-800 text-white border-slate-700'
+              : 'bg-emerald-600 text-white border-emerald-500'
+          }`}
+        >
+          <span>{toast.message}</span>
+        </div>
+      )}
+
+      <header className="sticky top-0 z-30 bg-slate-900 text-white border-b border-slate-800 shadow-sm">
+        <div className="max-w-6xl mx-auto px-3 sm:px-6 h-16 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-emerald-500 text-slate-950 font-black flex items-center justify-center text-base shrink-0">
+              L
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-sm sm:text-base font-black tracking-wide uppercase text-white leading-tight">
-                  Learn To Pass With Us
-                </h1>
-                <span className="hidden lg:inline-block bg-amber-400 text-zinc-950 font-mono font-black text-[10px] px-1.5 py-0.5 rounded">
-                  EN56 WXA
-                </span>
-                <span
-                  title={cloudReady ? 'Cloud Live Sync Active' : 'Connecting Cloud Sync...'}
-                  className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                    cloudReady ? 'bg-emerald-400 shadow-sm shadow-emerald-400' : 'bg-zinc-600'
-                  }`}
-                />
+            <div className="truncate">
+              <div className="text-sm sm:text-base font-extrabold tracking-tight leading-tight truncate">
+                Learn To Pass With Us
               </div>
-              <p className="text-[11px] text-zinc-400 mt-0.5 hidden sm:block">
-                Chichester &amp; West Sussex Driving School
-              </p>
+              <div className="text-[11px] text-slate-400 truncate">
+                {isInstructor ? 'Instructor Portal • EN56 WXA' : `Pupil Portal • ${currentUser.name}`}
+              </div>
             </div>
           </div>
 
-          {/* Center: Clean, Uniform Single-Row Navigation Links */}
-          <nav className="order-3 md:order-2 w-full md:w-auto flex items-center justify-center gap-1.5 sm:gap-2 pt-2 md:pt-0 border-t md:border-t-0 border-zinc-800/80">
-            <span
-              className={`hidden sm:inline-block text-[10px] uppercase font-black tracking-wider px-2.5 py-1.5 rounded-lg mr-1 ${
-                isInstructor
-                  ? 'bg-zinc-800 text-amber-400 border border-zinc-700'
-                  : 'bg-zinc-800 text-emerald-400 border border-zinc-700'
-              }`}
-            >
-              {isInstructor ? 'Instructor' : 'Pupil'}
-            </span>
-
+          <nav className="flex items-center gap-1 sm:gap-1.5">
             {navTabs.map((tab) => {
               const active = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`relative px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold uppercase tracking-wide transition cursor-pointer ${
+                  className={`relative px-2.5 sm:px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-bold transition ${
                     active
-                      ? 'bg-emerald-600 text-white shadow-sm'
-                      : 'text-zinc-200 hover:text-white hover:bg-zinc-800/80'
+                      ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                      : 'text-slate-200 hover:bg-slate-800 hover:text-white'
                   }`}
                 >
-                  <span>{tab.label}</span>
+                  {tab.label}
                   {tab.badge > 0 && (
-                    <span className="ml-1.5 inline-flex items-center justify-center bg-red-500 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full">
+                    <span className="ml-1.5 px-1.5 py-0.2 text-[10px] font-black rounded-full bg-rose-500 text-white">
                       {tab.badge}
                     </span>
                   )}
@@ -1334,154 +1065,85 @@ export default function App() {
             })}
           </nav>
 
-          {/* Right: Universal Settings Cog & Sign Out */}
-          <div className="order-2 md:order-3 flex items-center gap-2 sm:gap-3">
-            {isInstructor && (
-              <button
-                onClick={() => setShowCreateAccountModal(true)}
-                title="Add New Pupil or Instructor"
-                className="inline-flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 text-xs font-bold px-2.5 py-2 rounded-xl transition cursor-pointer"
-              >
-                <UserPlus className="w-4 h-4 text-emerald-400" />
-                <span className="hidden xl:inline">Add User</span>
-              </button>
-            )}
-
+          <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => setActiveTab('accounts')}
               title="Account Settings"
-              aria-label="Account Settings"
-              className={`group flex flex-col items-center justify-center px-2.5 py-1.5 rounded-xl border transition cursor-pointer ${
+              className={`flex flex-col items-center justify-center px-2.5 py-1 rounded-xl transition ${
                 activeTab === 'accounts'
-                  ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
-                  : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border-zinc-700'
+                  ? 'bg-emerald-500 text-slate-950'
+                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
               }`}
             >
-              <Settings className="w-4 h-4 transition-transform duration-300 group-hover:rotate-45" />
-              <span className="text-[9px] font-bold tracking-wide mt-0.5 leading-none">
+              <Settings className="w-4 h-4" />
+              <span className="hidden sm:inline text-[10px] font-semibold leading-none mt-0.5">
                 Settings
               </span>
             </button>
 
             <button
-              onClick={() => {
-                setActiveUserId(null);
-                setActiveTab('dashboard');
-                notify('Signed Out', 'You have been securely logged out.', 'info');
-              }}
+              onClick={() => setCurrentUserId(null)}
               title="Sign Out"
-              className="flex flex-col items-center justify-center px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-red-600/90 text-zinc-300 hover:text-white border border-zinc-700 hover:border-red-500 transition cursor-pointer"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-white transition"
             >
               <LogOut className="w-4 h-4" />
-              <span className="text-[9px] font-bold tracking-wide mt-0.5 leading-none">
-                Sign Out
-              </span>
+              <span className="hidden md:inline">Sign Out</span>
             </button>
           </div>
         </div>
       </header>
 
-      {toastNotification && (
-        <div className="fixed bottom-4 right-4 z-50 max-w-sm w-full bg-zinc-900 text-white border border-zinc-700 rounded-2xl shadow-2xl p-4 flex items-start gap-3 animate-fade-in">
-          <div
-            className={`p-2 rounded-xl flex-shrink-0 ${
-              toastNotification.type === 'error'
-                ? 'bg-red-500/20 text-red-400'
-                : toastNotification.type === 'info'
-                ? 'bg-amber-500/20 text-amber-400'
-                : 'bg-emerald-500/20 text-emerald-400'
-            }`}
-          >
-            <Bell className="w-5 h-5" />
-          </div>
-          <div className="flex-1">
-            <h4 className="text-sm font-bold">{toastNotification.title}</h4>
-            <p className="text-xs text-zinc-300 mt-0.5 leading-relaxed">{toastNotification.description}</p>
-          </div>
-          <button
-            onClick={() => setToastNotification(null)}
-            className="text-zinc-400 hover:text-white text-xs font-bold"
-          >
-            ✕
-          </button>
-        </div>
-      )}
+      <main className="flex-1 max-w-6xl w-full mx-auto px-3 sm:px-6 py-6">
+        {activeTab === 'dashboard' &&
+          (isInstructor ? (
+            <InstructorDashboardView
+              currentUser={currentUser}
+              lessons={lessons}
+              pupils={pupils}
+              selectedDate={selectedDate}
+              onSelectDate={setSelectedDate}
+              onApprove={handleApproveLesson}
+              onReject={handleRejectLesson}
+              onCancel={handleCancelLesson}
+              onOpenAddLesson={() => setShowInstructorAddLessonModal(true)}
+            />
+          ) : (
+            <PupilDashboardView
+              currentUser={currentUser}
+              lessons={lessons}
+              selectedDate={selectedDate}
+              onSelectDate={setSelectedDate}
+              computeSlotAvailability={computeSlotAvailability}
+              onCreateBooking={handleCreateBookingRequest}
+              onCancelLesson={handleCancelLesson}
+              onConfirmAttendance={handleConfirmAttendance}
+              onOpenSettings={() => setActiveTab('accounts')}
+            />
+          ))}
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
-        {activeTab === 'dashboard' && (
-          <VWGolfGTIBadge
-            customCarPhoto={customCarPhoto}
-            onUploadCarPhoto={(dataUrl) => {
-              setCustomCarPhoto(dataUrl);
-              persistCloudDoc('schoolConfig', 'main', { customCarPhoto: dataUrl });
-              notify('Car Photo Updated!', 'Your Black VW Golf GTI (EN56 WXA) photo is now synced across all devices.');
-            }}
-            onResetCarPhoto={() => {
-              setCustomCarPhoto(null);
-              persistCloudDoc('schoolConfig', 'main', { customCarPhoto: null });
-              notify('Reset to Default Graphic', 'Switched back to the default VW Golf Mk5 GTI graphic.', 'info');
-            }}
+        {activeTab === 'diary' && (
+          <GoogleStyleDiaryView
+            currentUser={currentUser}
             isInstructor={isInstructor}
-          />
-        )}
-
-        {activeTab === 'dashboard' && isInstructor && (
-          <InstructorDashboardView
-            lessons={lessons}
-            pupilsList={pupilsList}
+            lessons={isInstructor ? lessons : lessons.filter((l) => l.pupilId === currentUser.id)}
+            unavailability={isInstructor ? unavailability : []}
+            rotaEvents={isInstructor ? rotaEvents : []}
             selectedDate={selectedDate}
-            setSelectedDate={setSelectedDate}
-            settings={settings}
-            unavailability={unavailability}
-            onApprove={handleApproveLesson}
-            onOpenDecline={(lesson) => {
-              setDeclineModalLesson(lesson);
-              setDeclineReasonText('');
-            }}
-            onCancel={(lesson) => handleCancelLesson(lesson, 'instructor')}
-            onSendReminder={handleSend24HrReminder}
-            onUpdateNotes={handleUpdateLessonNotes}
+            onSelectDate={setSelectedDate}
             onOpenAddLesson={() => setShowInstructorAddLessonModal(true)}
-            onSelectPupilSyllabus={(pid) => {
-              setSelectedPupilForPlan(pid);
-              setActiveTab('syllabus');
-            }}
-          />
-        )}
-
-        {activeTab === 'dashboard' && !isInstructor && (
-          <PupilDashboardView
-            pupil={currentUser}
-            lessons={lessons}
-            unavailability={unavailability}
-            rotaEvents={settings.secondaryShiftEnabled ? rotaEvents : []}
-            selectedDate={selectedDate}
-            setSelectedDate={setSelectedDate}
-            settings={settings}
-            computeSlotAvailability={computeSlotAvailability}
-            onBookRequest={handleCreateBookingRequest}
-            onCancelLesson={(lesson) => handleCancelLesson(lesson, 'pupil')}
-            onConfirmAttendance={handlePupilConfirmAttendance}
-            onUpdateNotes={handleUpdateLessonNotes}
-            copiedFeedUrl={copiedFeedUrl}
-            setCopiedFeedUrl={setCopiedFeedUrl}
-            notify={notify}
+            onApprove={handleApproveLesson}
+            onReject={handleRejectLesson}
+            onCancel={handleCancelLesson}
           />
         )}
 
         {activeTab === 'syllabus' && (
           <SyllabusFlowchartView
-            isInstructor={isInstructor}
             currentUser={currentUser}
-            pupilsList={pupilsList}
-            selectedPupilId={isInstructor ? selectedPupilForPlan : currentUser.id}
-            setSelectedPupilId={setSelectedPupilForPlan}
+            isInstructor={isInstructor}
+            pupils={pupils}
             syllabusProgress={syllabusProgress}
-            setSyllabusProgress={setSyllabusProgress}
-            onPersistSyllabus={(pid, updatedSkills) =>
-              persistCloudDoc('syllabus', pid, { skills: updatedSkills })
-            }
-            notify={notify}
+            onToggleTopicStatus={handleToggleSyllabusTopic}
           />
         )}
 
@@ -1489,27 +1151,11 @@ export default function App() {
           <MessagingCenterView
             currentUser={currentUser}
             isInstructor={isInstructor}
-            pupilsList={pupilsList}
             accounts={accounts}
             messages={messages}
-            setMessages={setMessages}
-            onMarkRead={(msgId) => persistCloudDoc('messages', msgId, { read: true })}
-            onSendMessage={sendAutomatedMessage}
-            notify={notify}
-          />
-        )}
-
-        {activeTab === 'diary' && (
-          <GoogleStyleDiaryView
-            isInstructor={isInstructor}
-            currentUser={currentUser}
-            lessons={lessons}
-            unavailability={isInstructor ? unavailability : []}
-            rotaEvents={isInstructor && settings.secondaryShiftEnabled ? rotaEvents : []}
-            selectedDate={selectedDate}
-            setSelectedDate={setSelectedDate}
-            onOpenSettings={() => setActiveTab('accounts')}
-            onOpenDashboard={() => setActiveTab('dashboard')}
+            onSendMessage={(toId, toName, text) =>
+              sendAutomatedMessage(toId, toName, text, isInstructor ? 'instructor' : 'pupil')
+            }
           />
         )}
 
@@ -1539,11 +1185,18 @@ export default function App() {
                 notify={notify}
               />
             ) : (
-              <PupilCalendarIntegrationCard
-                pupil={currentUser}
-                lessons={lessons}
-                notify={notify}
-              />
+              <>
+                <PupilLocationsSettingsCard
+                  pupil={currentUser}
+                  onSaveLocations={(updates) => handleUpdateAccountDetails(currentUser.id, updates)}
+                  notify={notify}
+                />
+                <PupilCalendarIntegrationCard
+                  pupil={currentUser}
+                  lessons={lessons}
+                  notify={notify}
+                />
+              </>
             )}
 
             <AccountManagementView
@@ -1564,1028 +1217,908 @@ export default function App() {
         )}
       </main>
 
-      {declineModalLesson && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
-            <h3 className="text-lg font-extrabold text-slate-900 flex items-center gap-2">
-              <XCircle className="w-5 h-5 text-red-600" />
-              Decline Booking Request
-            </h3>
-            <p className="text-xs text-slate-600 mt-1">
-              Declining <strong>{declineModalLesson.pupilName}</strong> on{' '}
-              <strong>{formatReadableDate(declineModalLesson.date)}</strong> at{' '}
-              <strong>{declineModalLesson.startTime}</strong>. Add a message explaining why or suggesting an alternative time:
-            </p>
-
-            <textarea
-              rows={3}
-              value={declineReasonText}
-              onChange={(e) => setDeclineReasonText(e.target.value)}
-              placeholder="e.g., Too far from my previous drop-off in Bognor at 2pm — could we do 3:30pm instead?"
-              className="w-full mt-3 rounded-xl border border-slate-300 p-3 text-sm bg-white text-slate-900 focus:ring-2 focus:ring-red-500 focus:outline-none"
-            />
-
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                onClick={() => setDeclineModalLesson(null)}
-                className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-100"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDeclineLessonSubmit}
-                className="px-4 py-2 rounded-xl text-sm font-bold bg-red-600 hover:bg-red-700 text-white shadow-sm"
-              >
-                Send Decline &amp; Note
-              </button>
-            </div>
-          </div>
-        </div>
+      {showCreateAccountModal && (
+        <CreateAccountModal
+          onClose={() => setShowCreateAccountModal(false)}
+          onCreate={handleCreateAccount}
+        />
       )}
 
       {showInstructorAddLessonModal && (
         <InstructorAddLessonModal
-          pupilsList={pupilsList}
+          pupilsList={pupils}
           defaultDate={selectedDate}
           onClose={() => setShowInstructorAddLessonModal(false)}
-          onCreate={async (payload) => {
-            await handleCreateBookingRequest({ ...payload, autoConfirm: true });
+          onCreate={(data) => {
+            handleCreateBookingRequest({ ...data, autoConfirm: true });
             setShowInstructorAddLessonModal(false);
           }}
         />
       )}
 
-      {showCreateAccountModal && (
-        <CreateAccountModal
-          onClose={() => setShowCreateAccountModal(false)}
-          onCreated={(newAcc) => {
-            setAccounts((prev) => [...prev, newAcc]);
-            persistCloudDoc('accounts', newAcc.id, newAcc);
-            setShowCreateAccountModal(false);
-            notify('Account Created', `${newAcc.name} (${newAcc.role}) can now sign in with their email & password.`);
-          }}
-        />
-      )}
-
       {showGoogleGuideModal && (
-        <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-lg font-extrabold text-slate-900 flex items-center gap-2">
-                <Calendar className="w-5 h-5 text-emerald-600" />
-                Free Setup: Read Your Other Google Account Calendar
-              </h3>
-              <button
-                onClick={() => setShowGoogleGuideModal(false)}
-                className="text-slate-400 hover:text-slate-700 font-bold"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="mt-4 space-y-3 text-sm text-slate-700 leading-relaxed">
-              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs">
-                <strong>Why this is the easiest &amp; £0 (completely free) method:</strong> Google provides a private read-only <strong>Secret iCal URL</strong> on every Google Calendar (or use your direct work rota <code className="bg-emerald-100 px-1 rounded">.ics</code> / <code className="bg-emerald-100 px-1 rounded">webcal://</code> link). Even if events show as &ldquo;Free&rdquo; in Google Calendar, this app blocks out every shift automatically!
-              </div>
-
-              <ol className="list-decimal pl-5 space-y-2.5 text-xs sm:text-sm">
-                <li>
-                  Open <strong>Google Calendar</strong> on a computer/browser logged into your <strong>other Google account</strong> (or copy your work rota <code className="bg-slate-100 px-1.5 py-0.5 rounded text-xs">.ics</code> feed URL).
-                </li>
-                <li>
-                  On the left sidebar under <strong>&ldquo;My calendars&rdquo;</strong>, hover over your calendar name, click the <strong>three dots (⋮)</strong>, and choose <strong>Settings and sharing</strong>.
-                </li>
-                <li>
-                  Scroll down to the <strong>&ldquo;Integrate calendar&rdquo;</strong> section.
-                </li>
-                <li>
-                  Copy the link labelled <strong>&ldquo;Secret address in iCal format&rdquo;</strong> (it ends in <code className="bg-slate-100 px-1.5 py-0.5 rounded text-xs">.ics</code>).
-                </li>
-                <li>
-                  Paste that link into the <strong>Work Rota / 2nd Calendar Feed</strong> box in this app and click <strong>Sync Rota Now</strong>.
-                </li>
-              </ol>
-            </div>
-
-            <div className="mt-5 flex justify-end">
-              <button
-                onClick={() => setShowGoogleGuideModal(false)}
-                className="px-5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-sm font-bold"
-              >
-                Got It
-              </button>
-            </div>
-          </div>
-        </div>
+        <GoogleCalendarGuideModal onClose={() => setShowGoogleGuideModal(false)} />
       )}
 
       {confirmModal && (
-        <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
-            <h3 className="text-lg font-extrabold text-slate-900 flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-red-600" />
-              {confirmModal.title}
-            </h3>
-            <p className="text-sm text-slate-600 mt-2 leading-relaxed">{confirmModal.message}</p>
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                onClick={() => setConfirmModal(null)}
-                className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-100"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmModal.onConfirm}
-                className="px-4 py-2 rounded-xl text-sm font-bold bg-red-600 hover:bg-red-700 text-white"
-              >
-                {confirmModal.confirmLabel || 'Confirm'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmationDialog
+          title={confirmModal.title}
+          message={confirmModal.message}
+          confirmLabel={confirmModal.confirmLabel}
+          onConfirm={() => {
+            confirmModal.onConfirm();
+            setConfirmModal(null);
+          }}
+          onCancel={() => setConfirmModal(null)}
+        />
       )}
     </div>
   );
 }
 
 // ============================================================================
-// SUB-COMPONENT: INSTRUCTOR DASHBOARD VIEW
+// AUTH SCREEN (SIGN IN & NEW PUPIL/INSTRUCTOR REGISTRATION)
 // ============================================================================
-function InstructorDashboardView({
-  lessons,
-  pupilsList,
-  selectedDate,
-  setSelectedDate,
-  settings,
-  unavailability,
-  onApprove,
-  onOpenDecline,
-  onCancel,
-  onSendReminder,
-  onUpdateNotes,
-  onOpenAddLesson,
-  onSelectPupilSyllabus
-}) {
-  const [editingNoteId, setEditingNoteId] = useState(null);
-  const [noteDraft, setNoteDraft] = useState('');
+function AuthScreen({ accounts, onLoginSuccess, onRegisterSuccess, cloudReady }) {
+  const [mode, setMode] = useState('login');
+  const [role, setRole] = useState('pupil');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [postcode, setPostcode] = useState(WEST_SUSSEX_POSTCODES[0]);
+  const [homeAddress, setHomeAddress] = useState('');
+  const [accessCode, setAccessCode] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [capsLockOn, setCapsLockOn] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
-  const pendingLessons = useMemo(
-    () => lessons.filter((l) => l.status === 'pending'),
-    [lessons]
-  );
+  const handleKeyCheck = (e) => {
+    if (typeof e.getModifierState === 'function') {
+      setCapsLockOn(e.getModifierState('CapsLock'));
+    }
+  };
 
-  const dayConfirmedLessons = useMemo(
-    () =>
-      lessons.filter(
-        (l) => l.date === selectedDate && (l.status === 'confirmed' || l.status === 'pending')
-      ),
-    [lessons, selectedDate]
-  );
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    setErrorMsg('');
+    const cleanEmail = email.trim().toLowerCase();
 
-  const upcomingConfirmed = useMemo(
-    () => lessons.filter((l) => l.status === 'confirmed'),
-    [lessons]
-  );
-
-  const getTravelImpactBadge = (pendingLesson) => {
-    const sameDayConfirmed = lessons
-      .filter(
-        (l) =>
-          l.id !== pendingLesson.id &&
-          l.date === pendingLesson.date &&
-          l.status === 'confirmed'
-      )
-      .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
-
-    const prev = [...sameDayConfirmed]
-      .reverse()
-      .find((l) => timeToMinutes(l.startTime) + l.durationMins <= timeToMinutes(pendingLesson.startTime));
-
-    if (!prev) {
-      return {
-        label: 'First lesson / Clear schedule before slot',
-        color: 'bg-emerald-50 text-emerald-700 border-emerald-200'
-      };
+    if (mode === 'login') {
+      const found = accounts.find((a) => (a.email || '').toLowerCase() === cleanEmail);
+      if (!found) {
+        setErrorMsg('No account found with that email address. Please check or sign up.');
+        return;
+      }
+      if (found.password !== password) {
+        setErrorMsg('Incorrect password. Please check CAPS Lock and try again.');
+        return;
+      }
+      onLoginSuccess(found);
+      return;
     }
 
-    if (prev.pupilId === pendingLesson.pupilId) {
-      return {
-        label: `Consecutive booking with ${prev.pupilName} (distance buffer bypassed)`,
-        color: 'bg-blue-50 text-blue-700 border-blue-200'
-      };
+    if (!name.trim() || !cleanEmail || !password) {
+      setErrorMsg('Please complete all required fields.');
+      return;
     }
 
-    const metrics = calculateTravelMetrics(prev.dropoffLocation, pendingLesson.pickupLocation);
-    const gapMins =
-      timeToMinutes(pendingLesson.startTime) - (timeToMinutes(prev.startTime) + prev.durationMins);
+    if (accounts.some((a) => (a.email || '').toLowerCase() === cleanEmail)) {
+      setErrorMsg('An account with that email already exists. Please sign in.');
+      return;
+    }
 
-    return {
-      label: `${metrics.miles} mi from ${prev.pupilName} (${metrics.driveMins}m drive + 10m notes = ${metrics.rawTotalMins}m → rounded up to ${metrics.bufferedMins}m | Actual gap: ${gapMins}m)`,
-      color:
-        gapMins >= metrics.bufferedMins
-          ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-          : 'bg-amber-50 text-amber-800 border-amber-200'
+    if (role === 'instructor' && accessCode.trim().toUpperCase() !== INSTRUCTOR_ACCESS_CODE) {
+      setErrorMsg('Invalid Instructor Access Code.');
+      return;
+    }
+
+    const newAcc = {
+      id: `${role}-${Date.now()}`,
+      role,
+      name: name.trim(),
+      email: cleanEmail,
+      password,
+      postcode,
+      homeAddress: homeAddress.trim(),
+      savedLocations: []
     };
+    onRegisterSuccess(newAcc);
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-        <div className="flex flex-wrap items-center gap-3">
-          <div>
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block">
-              Active Working Window
-            </span>
-            <span className="text-sm font-extrabold text-slate-800">
-              {settings.workStart} – {settings.workEnd}
-            </span>
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col justify-between p-4 sm:p-8 [color-scheme:light]">
+      <div className="max-w-5xl w-full mx-auto flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white font-black flex items-center justify-center text-lg shadow-sm">
+            L
           </div>
-          <div className="h-8 w-px bg-slate-200 hidden sm:block" />
           <div>
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block">
-              Pending Approvals
-            </span>
-            <span className="text-sm font-extrabold text-amber-600">
-              {pendingLessons.length} Request(s)
-            </span>
-          </div>
-          <div className="h-8 w-px bg-slate-200 hidden sm:block" />
-          <div>
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block">
-              Work Rota / 2nd Cal
-            </span>
-            <span className="text-sm font-extrabold text-indigo-600">
-              {settings.secondaryShiftEnabled
-                ? settings.syncedRotaCount > 0
-                  ? `${settings.syncedRotaCount} Rota Shift(s) Synced`
-                  : `Active (${settings.secondaryShiftStart}-${settings.secondaryShiftEnd})`
-                : 'Off'}
-            </span>
+            <h1 className="text-lg font-extrabold text-slate-900 leading-tight">
+              Learn To Pass With Us
+            </h1>
+            <p className="text-xs text-slate-500">Chichester &amp; West Sussex Driving School</p>
           </div>
         </div>
-
-        <button
-          onClick={onOpenAddLesson}
-          className="inline-flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white text-xs sm:text-sm font-bold px-4 py-2.5 rounded-xl transition shadow-sm"
+        <span
+          className={`px-3 py-1 rounded-full text-xs font-bold border ${
+            cloudReady
+              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+              : 'bg-amber-50 text-amber-700 border-amber-200'
+          }`}
         >
-          <Plus className="w-4 h-4 text-emerald-400" />
-          Add Lesson for Pupil
-        </button>
+          {cloudReady ? 'Live Booking Portal' : 'Connecting...'}
+        </span>
       </div>
 
-      <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 bg-amber-50/70 border-b border-amber-200/80 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Clock className="w-5 h-5 text-amber-600" />
-            <h2 className="text-base font-extrabold text-slate-900">
-              Pending Slot Requests ({pendingLessons.length})
-            </h2>
-          </div>
-          <span className="text-xs font-semibold text-amber-800">
-            All slots require your confirmation
+      <div className="max-w-5xl w-full mx-auto my-8 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+        <div className="lg:col-span-6 space-y-4">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
+            <ShieldCheck className="w-3.5 h-3.5" /> DVSA APPROVED DRIVING INSTRUCTION
           </span>
+          <h2 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight leading-tight">
+            Book Lessons, Track Your DVSA Progress &amp; Sync Your Calendar.
+          </h2>
+          <p className="text-sm sm:text-base text-slate-600 leading-relaxed">
+            Sign in to your personal portal to book 1hr, 1.5hr, or 2hr manual driving lessons in
+            Chichester &amp; West Sussex, track your step-by-step DVSA syllabus plan, and sync your
+            diary directly to your phone.
+          </p>
+          <VWGolfGTIBadge />
         </div>
 
-        {pendingLessons.length === 0 ? (
-          <div className="p-6 text-center text-sm text-slate-500">
-            No pending lesson requests right now. All requests have been processed!
+        <div className="lg:col-span-6 bg-white rounded-3xl border border-slate-200 shadow-xl p-6 sm:p-8">
+          <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-2xl mb-6">
+            <button
+              type="button"
+              onClick={() => {
+                setMode('login');
+                setErrorMsg('');
+              }}
+              className={`py-2.5 rounded-xl text-sm font-bold transition ${
+                mode === 'login'
+                  ? 'bg-slate-900 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMode('register');
+                setErrorMsg('');
+              }}
+              className={`py-2.5 rounded-xl text-sm font-bold transition ${
+                mode === 'register'
+                  ? 'bg-slate-900 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              New Pupil Sign Up
+            </button>
           </div>
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {pendingLessons.map((req) => {
-              const impact = getTravelImpactBadge(req);
-              const endTime = minutesToTime(timeToMinutes(req.startTime) + req.durationMins);
-              return (
-                <div key={req.id} className="p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                  <div className="space-y-1.5">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-extrabold text-slate-900 text-base">{req.pupilName}</span>
-                      <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-zinc-900 text-white">
-                        {formatReadableDate(req.date)} • {req.startTime} – {endTime} ({req.durationMins / 60}h)
-                      </span>
-                      {req.isOutOfHours && (
-                        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border border-purple-300">
-                          Early/Late Out-of-Hours Request
-                        </span>
-                      )}
-                    </div>
 
-                    <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
-                      <span className="inline-flex items-center gap-1 font-medium">
-                        <MapPin className="w-3.5 h-3.5 text-emerald-600" />
-                        Pick-up: {req.pickupLocation}
-                      </span>
-                      {req.pupilNotes && (
-                        <span className="inline-flex items-center gap-1 text-slate-500 italic">
-                          &ldquo;{req.pupilNotes}&rdquo;
-                        </span>
-                      )}
-                    </div>
+          {errorMsg && (
+            <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
 
-                    <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg border text-xs font-semibold ${impact.color}`}>
-                      <Navigation className="w-3.5 h-3.5 flex-shrink-0" />
-                      <span>{impact.label}</span>
-                    </div>
-                  </div>
+          {capsLockOn && (
+            <div className="mb-4 p-2.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-800 text-xs font-bold flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>CAPS LOCK IS ON — Passwords are case-sensitive.</span>
+            </div>
+          )}
 
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <button
-                      onClick={() => onApprove(req)}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold shadow-sm transition"
-                    >
-                      <CheckCircle2 className="w-4 h-4" />
-                      Confirm &amp; Send Message
-                    </button>
-                    <button
-                      onClick={() => onOpenDecline(req)}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white hover:bg-red-50 text-red-600 border border-red-200 text-xs sm:text-sm font-bold transition"
-                    >
-                      <XCircle className="w-4 h-4" />
-                      Decline + Note
-                    </button>
-                  </div>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {mode === 'register' && (
+              <>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Registering As
+                  </label>
+                  <select
+                    value={role}
+                    onChange={(e) => setRole(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 [color-scheme:light]"
+                  >
+                    <option value="pupil">Pupil (Book Driving Lessons)</option>
+                    <option value="instructor">Driving Instructor (ADI)</option>
+                  </select>
                 </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-base font-extrabold text-slate-900">Daily Lesson Schedule</h2>
-              <p className="text-xs text-slate-500">
-                Includes automatic travel + 10-min lesson notes turnaround buffers
-              </p>
-            </div>
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="rounded-xl border border-slate-300 px-3 py-1.5 text-sm font-semibold bg-white text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-            />
-          </div>
-
-          <div className="p-5 space-y-4">
-            {dayConfirmedLessons.length === 0 ? (
-              <div className="text-center py-8 bg-slate-50 rounded-xl border border-dashed border-slate-300">
-                <Calendar className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                <p className="text-sm font-semibold text-slate-700">
-                  No lessons booked on {formatReadableDate(selectedDate)}
-                </p>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Select another date or click &ldquo;Add Lesson for Pupil&rdquo; above.
-                </p>
-              </div>
-            ) : (
-              dayConfirmedLessons.map((lesson, idx) => {
-                const endStr = minutesToTime(timeToMinutes(lesson.startTime) + lesson.durationMins);
-                const nextLesson = dayConfirmedLessons[idx + 1];
-                let nextBufferInfo = null;
-                if (nextLesson) {
-                  const m = calculateTravelMetrics(lesson.dropoffLocation, nextLesson.pickupLocation);
-                  nextBufferInfo =
-                    lesson.pupilId === nextLesson.pupilId
-                      ? 'Consecutive lesson with same pupil (0m travel)'
-                      : `${m.miles} mi to ${nextLesson.pupilName} (${m.driveMins}m drive + 10m notes = ${m.bufferedMins}m turnaround buffer)`;
-                }
-
-                return (
-                  <div key={lesson.id} className="space-y-2">
-                    <div className="rounded-xl border border-slate-200 p-4 hover:border-emerald-300 transition bg-slate-50/50">
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono font-extrabold text-sm bg-zinc-900 text-white px-2.5 py-0.5 rounded-lg">
-                              {lesson.startTime} – {endStr}
-                            </span>
-                            <span className="font-extrabold text-slate-900">{lesson.pupilName}</span>
-                            <span
-                              className={`text-[11px] font-bold px-2 py-0.5 rounded-full uppercase ${
-                                lesson.status === 'confirmed'
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : 'bg-amber-100 text-amber-800'
-                              }`}
-                            >
-                              {lesson.status}
-                            </span>
-                            {lesson.pupilConfirmedAttendance && (
-                              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
-                                Attendance Confirmed
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-xs text-slate-600 mt-1.5 flex items-center gap-1">
-                            <MapPin className="w-3.5 h-3.5 text-emerald-600" />
-                            {lesson.pickupLocation}
-                          </p>
-                        </div>
-
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => onSelectPupilSyllabus(lesson.pupilId)}
-                            className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-xs font-bold text-slate-700"
-                          >
-                            Lesson Plan
-                          </button>
-                          <button
-                            onClick={() => onCancel(lesson)}
-                            className="px-2.5 py-1.5 rounded-lg bg-white border border-red-200 hover:bg-red-50 text-xs font-bold text-red-600"
-                          >
-                            Cancel Slot
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 pt-3 border-t border-slate-200/80">
-                        {editingNoteId === lesson.id ? (
-                          <div className="flex flex-col sm:flex-row gap-2">
-                            <input
-                              type="text"
-                              value={noteDraft}
-                              onChange={(e) => setNoteDraft(e.target.value)}
-                              className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs bg-white text-slate-900"
-                              placeholder="What will be worked on in this lesson..."
-                            />
-                            <button
-                              onClick={() => {
-                                onUpdateNotes(lesson.id, noteDraft, undefined);
-                                setEditingNoteId(null);
-                              }}
-                              className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold"
-                            >
-                              Save Note
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-between gap-2 text-xs">
-                            <div>
-                              <span className="font-bold text-slate-700">Next Lesson Focus: </span>
-                              <span className="text-slate-600">{lesson.notes || 'None added yet'}</span>
-                              {lesson.pupilNotes && (
-                                <span className="block text-indigo-700 mt-0.5">
-                                  <strong>Pupil Note:</strong> {lesson.pupilNotes}
-                                </span>
-                              )}
-                            </div>
-                            <button
-                              onClick={() => {
-                                setEditingNoteId(lesson.id);
-                                setNoteDraft(lesson.notes || '');
-                              }}
-                              className="text-emerald-700 hover:underline font-bold flex items-center gap-1 flex-shrink-0"
-                            >
-                              <Edit3 className="w-3 h-3" /> Edit Focus
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {nextBufferInfo && (
-                      <div className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-slate-100 text-[11px] font-semibold text-slate-600">
-                        <Navigation className="w-3.5 h-3.5 text-amber-600" />
-                        <span>Turnaround Buffer: {nextBufferInfo}</span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
-          <div className="flex items-center gap-2">
-            <Bell className="w-5 h-5 text-emerald-600" />
-            <div>
-              <h3 className="text-base font-extrabold text-slate-900">24-Hr Auto-Reminders</h3>
-              <p className="text-xs text-slate-500">
-                {settings.auto24HrReminderEnabled !== false
-                  ? 'Automatic 24h alerts ON (or send early below)'
-                  : 'Manual mode — configure auto-send in Settings'}
-              </p>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            {upcomingConfirmed.length === 0 ? (
-              <p className="text-xs text-slate-500">No upcoming confirmed lessons.</p>
-            ) : (
-              upcomingConfirmed.map((l) => (
-                <div key={l.id} className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-extrabold text-slate-900">{l.pupilName}</span>
-                    <span className="text-[11px] font-mono font-bold text-slate-600">
-                      {formatReadableDate(l.date)} {l.startTime}
-                    </span>
-                  </div>
-
-                  {l.pupilConfirmedAttendance ? (
-                    <div className="text-xs font-bold text-emerald-700 flex items-center gap-1">
-                      <CheckCircle2 className="w-4 h-4" /> Pupil confirmed going ahead
-                    </div>
-                  ) : l.reminderSent ? (
-                    <div className="text-xs font-semibold text-amber-700 flex items-center gap-1">
-                      <Clock className="w-4 h-4" /> Reminder sent — awaiting pupil reply
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => onSendReminder(l)}
-                      className="w-full py-1.5 px-3 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition"
-                    >
-                      <Send className="w-3.5 h-3.5 text-emerald-400" />
-                      Send Reminder Early Now
-                    </button>
-                  )}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Full Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="e.g. Alex Taylor"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 [color-scheme:light]"
+                  />
                 </div>
-              ))
+              </>
             )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
-// ============================================================================
-// SUB-COMPONENT: PUPIL DASHBOARD, SMART SLOT PICKER & MULTI-CALENDAR EXPORT
-// ============================================================================
-function PupilDashboardView({
-  pupil,
-  lessons,
-  unavailability = [],
-  rotaEvents = [],
-  selectedDate,
-  setSelectedDate,
-  settings,
-  computeSlotAvailability,
-  onBookRequest,
-  onCancelLesson,
-  onConfirmAttendance,
-  onUpdateNotes,
-  copiedFeedUrl,
-  setCopiedFeedUrl,
-  notify
-}) {
-  const [durationMins, setDurationMins] = useState(60);
-  const [pickupLocation, setPickupLocation] = useState(pupil.postcode || 'PO19 - Chichester City Centre');
-  const [selectedSlotTime, setSelectedSlotTime] = useState('');
-  const [pupilBookingNote, setPupilBookingNote] = useState('');
-  const [showCustomTimeRequest, setShowCustomTimeRequest] = useState(false);
-  const [customEarlyLateTime, setCustomEarlyLateTime] = useState('06:15');
-  const [openCalendarMenuId, setOpenCalendarMenuId] = useState(null);
-  const [editingPupilNoteId, setEditingPupilNoteId] = useState(null);
-  const [pupilNoteDraft, setPupilNoteDraft] = useState('');
-
-  useEffect(() => {
-    setPickupLocation(pupil.postcode || 'PO19 - Chichester City Centre');
-    setSelectedSlotTime('');
-  }, [pupil]);
-
-  const myLessons = useMemo(
-    () => lessons.filter((l) => l.pupilId === pupil.id && l.status !== 'cancelled'),
-    [lessons, pupil.id]
-  );
-
-  const myConfirmedLessons = useMemo(
-    () => myLessons.filter((l) => l.status === 'confirmed'),
-    [myLessons]
-  );
-
-  const computedSlots = useMemo(() => {
-    return computeSlotAvailability(
-      selectedDate,
-      { ...pupil, postcode: pickupLocation },
-      durationMins
-    );
-  }, [selectedDate, pupil, pickupLocation, durationMins, lessons, settings, unavailability, rotaEvents]);
-
-  const lessonsNeeding24HrConfirm = useMemo(
-    () => myConfirmedLessons.filter((l) => l.reminderSent && !l.pupilConfirmedAttendance),
-    [myConfirmedLessons]
-  );
-
-  return (
-    <div className="space-y-6">
-      {lessonsNeeding24HrConfirm.length > 0 &&
-        lessonsNeeding24HrConfirm.map((remLesson) => (
-          <div
-            key={remLesson.id}
-            className="bg-amber-50 border-2 border-amber-400 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm"
-          >
-            <div className="flex items-start gap-3">
-              <Bell className="w-6 h-6 text-amber-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <h3 className="text-sm sm:text-base font-extrabold text-amber-950">
-                  24-Hour Lesson Reminder: Please Confirm Attendance
-                </h3>
-                <p className="text-xs sm:text-sm text-amber-900 mt-0.5">
-                  Your lesson is scheduled for <strong>{formatReadableDate(remLesson.date)}</strong> at{' '}
-                  <strong>{remLesson.startTime}</strong> ({remLesson.durationMins / 60}h) in{' '}
-                  <strong>{remLesson.pickupLocation}</strong>.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <button
-                onClick={() => onConfirmAttendance(remLesson)}
-                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold shadow-sm"
-              >
-                Confirm Still Attending
-              </button>
-              <button
-                onClick={() => onCancelLesson(remLesson)}
-                className="px-4 py-2 rounded-xl bg-white border border-red-300 hover:bg-red-50 text-red-700 text-xs sm:text-sm font-bold"
-              >
-                Cancel Lesson
-              </button>
-            </div>
-          </div>
-        ))}
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6 space-y-5">
-          <div>
-            <h2 className="text-lg font-extrabold text-slate-900">Book a Driving Lesson</h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Available times automatically adjust based on your pick-up location and the instructor&apos;s previous lesson drop-off.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">1. Select Date</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Email Address</label>
               <input
-                type="date"
-                value={selectedDate}
-                min={getUpcomingDateStr(0)}
-                onChange={(e) => {
-                  setSelectedDate(e.target.value);
-                  setSelectedSlotTime('');
-                }}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold bg-white text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={handleKeyCheck}
+                onKeyUp={handleKeyCheck}
+                placeholder="you@example.com"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 [color-scheme:light]"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">2. Lesson Duration</label>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { mins: 60, label: '1 Hr' },
-                  { mins: 90, label: '1.5 Hrs' },
-                  { mins: 120, label: '2 Hrs' }
-                ].map((opt) => (
-                  <button
-                    key={opt.mins}
-                    type="button"
-                    onClick={() => {
-                      setDurationMins(opt.mins);
-                      setSelectedSlotTime('');
-                    }}
-                    className={`py-2 rounded-xl text-xs font-extrabold border transition ${
-                      durationMins === opt.mins
-                        ? 'bg-zinc-900 text-white border-zinc-900 shadow-sm'
-                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-bold text-slate-700">Password</label>
+                {capsLockOn && (
+                  <span className="text-[11px] font-black text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
+                    CAPS LOCK ON
+                  </span>
+                )}
+              </div>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onKeyDown={handleKeyCheck}
+                  onKeyUp={handleKeyCheck}
+                  placeholder="••••••••"
+                  className="w-full pl-3.5 pr-10 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 [color-scheme:light]"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                  title={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
             </div>
-          </div>
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              3. Pick-Up &amp; Drop-Off Area (Used for travel buffer check)
-            </label>
-            <select
-              value={pickupLocation}
-              onChange={(e) => {
-                setPickupLocation(e.target.value);
-                setSelectedSlotTime('');
-              }}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold bg-white text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-            >
-              {WEST_SUSSEX_LOCATIONS.map((loc) => (
-                <option key={loc.code} value={`${loc.code} - ${loc.name}`}>
-                  {loc.code} — {loc.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-bold text-slate-700">
-                4. Choose Available Start Time ({settings.workStart || '07:00'} – {settings.workEnd || '18:00'})
-              </label>
-              <span className="text-[11px] text-emerald-700 font-semibold">
-                {computedSlots.filter((s) => s.available).length} slots open
-              </span>
-            </div>
-
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-60 overflow-y-auto pr-1">
-              {computedSlots.map((slot) => {
-                const isSelected = selectedSlotTime === slot.time;
-                return (
-                  <button
-                    key={slot.time}
-                    type="button"
-                    disabled={!slot.available}
-                    onClick={() => setSelectedSlotTime(slot.time)}
-                    title={slot.available ? slot.travelNote : slot.reason}
-                    className={`py-2 px-2 rounded-xl text-xs font-bold border text-center transition ${
-                      !slot.available
-                        ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed line-through'
-                        : isSelected
-                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm ring-2 ring-emerald-300'
-                        : 'bg-white text-slate-800 border-slate-300 hover:border-emerald-500 hover:bg-emerald-50/40'
-                    }`}
+            {mode === 'register' && role === 'pupil' && (
+              <>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Primary Pick-Up Postcode Area
+                  </label>
+                  <select
+                    value={postcode}
+                    onChange={(e) => setPostcode(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 [color-scheme:light]"
                   >
-                    {slot.time}
-                  </button>
-                );
-              })}
-            </div>
+                    {WEST_SUSSEX_POSTCODES.map((pc) => (
+                      <option key={pc} value={pc}>
+                        {pc}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-            {selectedSlotTime && (
-              <div className="mt-2.5 p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                <span>
-                  <strong>{selectedSlotTime}</strong> selected ({durationMins / 60}h):{' '}
-                  {computedSlots.find((s) => s.time === selectedSlotTime)?.travelNote}
-                </span>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Full Home Street Address (Optional — can also be added in Settings)
+                  </label>
+                  <input
+                    type="text"
+                    value={homeAddress}
+                    onChange={(e) => setHomeAddress(e.target.value)}
+                    placeholder="e.g. 14 St Pancras, Chichester, PO19 7SJ"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 [color-scheme:light]"
+                  />
+                </div>
+              </>
+            )}
+
+            {mode === 'register' && role === 'instructor' && (
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Instructor Access Code
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={accessCode}
+                  onChange={(e) => setAccessCode(e.target.value)}
+                  placeholder="Enter ADI registration code"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm font-mono uppercase focus:outline-none focus:ring-2 focus:ring-emerald-500 [color-scheme:light]"
+                />
               </div>
             )}
-          </div>
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              5. Notes / What would you like to work on? (Optional)
-            </label>
-            <input
-              type="text"
-              value={pupilBookingNote}
-              onChange={(e) => setPupilBookingNote(e.target.value)}
-              placeholder="e.g., Reverse bay parking or A27 roundabouts"
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900"
-            />
-          </div>
-
-          <button
-            type="button"
-            disabled={!selectedSlotTime}
-            onClick={() => {
-              onBookRequest({
-                pupilAccount: pupil,
-                date: selectedDate,
-                startTime: selectedSlotTime,
-                durationMins,
-                pickupLocation,
-                pupilNotes: pupilBookingNote,
-                isOutOfHours: false,
-                autoConfirm: false
-              });
-              setSelectedSlotTime('');
-              setPupilBookingNote('');
-            }}
-            className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-extrabold text-sm shadow-md transition"
-          >
-            Request Lesson Slot (Pending Instructor Confirmation)
-          </button>
-
-          <div className="pt-3 border-t border-slate-100">
             <button
-              type="button"
-              onClick={() => setShowCustomTimeRequest(!showCustomTimeRequest)}
-              className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+              type="submit"
+              className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-md transition"
             >
-              <Clock className="w-3.5 h-3.5" />
-              Need an earlier (before {settings.workStart}) or later (after {settings.workEnd}) slot? Request custom time
+              {mode === 'login' ? 'Sign In to My Portal' : 'Create Account & Enter Portal'}
             </button>
+          </form>
+        </div>
+      </div>
 
-            {showCustomTimeRequest && (
-              <div className="mt-3 p-3.5 rounded-xl bg-indigo-50/70 border border-indigo-200 space-y-3">
-                <p className="text-xs text-indigo-900">
-                  Submit a special request outside normal hours. Your instructor will approve or decline with a note.
-                </p>
-                <div className="flex flex-wrap items-center gap-2">
-                  <input
-                    type="time"
-                    value={customEarlyLateTime}
-                    onChange={(e) => setCustomEarlyLateTime(e.target.value)}
-                    className="rounded-lg border border-indigo-300 px-3 py-1.5 text-xs font-bold bg-white text-slate-900"
-                  />
+      <div className="max-w-5xl w-full mx-auto text-center text-xs text-slate-400">
+        Learn To Pass With Us • Manual Driving Tuition in Chichester, Bognor Regis, Arundel &amp;
+        Selsey
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// INSTRUCTOR HOME DASHBOARD
+// ============================================================================
+function InstructorDashboardView({
+  lessons,
+  pupils,
+  selectedDate,
+  onSelectDate,
+  onApprove,
+  onReject,
+  onCancel,
+  onOpenAddLesson
+}) {
+  const pendingLessons = lessons.filter((l) => l.status === 'pending');
+  const dayLessons = lessons.filter(
+    (l) => l.date === selectedDate && (l.status === 'confirmed' || l.status === 'pending')
+  );
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl sm:text-2xl font-black text-slate-900">Instructor Home</h2>
+          <p className="text-xs sm:text-sm text-slate-500">
+            Manage lesson requests, view today&apos;s pick-ups &amp; drop-offs, or schedule a pupil.
+          </p>
+        </div>
+        <button
+          onClick={onOpenAddLesson}
+          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-sm transition"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Book Lesson for Pupil</span>
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+          <div className="text-xs font-semibold text-slate-500">Pending Requests</div>
+          <div className="text-2xl font-black text-amber-600 mt-1">{pendingLessons.length}</div>
+        </div>
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+          <div className="text-xs font-semibold text-slate-500">Selected Day Lessons</div>
+          <div className="text-2xl font-black text-emerald-600 mt-1">{dayLessons.length}</div>
+        </div>
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+          <div className="text-xs font-semibold text-slate-500">Active Pupils</div>
+          <div className="text-2xl font-black text-slate-900 mt-1">{pupils.length}</div>
+        </div>
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+          <div className="text-xs font-semibold text-slate-500">Total Confirmed</div>
+          <div className="text-2xl font-black text-slate-900 mt-1">
+            {lessons.filter((l) => l.status === 'confirmed').length}
+          </div>
+        </div>
+      </div>
+
+      {pendingLessons.length > 0 && (
+        <div className="bg-amber-50/70 border border-amber-200 rounded-2xl p-4 sm:p-5 space-y-3">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-5 h-5 text-amber-600" />
+            <h3 className="text-sm font-extrabold text-amber-950">
+              Pending Pupil Booking Requests ({pendingLessons.length})
+            </h3>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {pendingLessons.map((l) => (
+              <div
+                key={l.id}
+                className="bg-white rounded-xl border border-amber-200 p-4 shadow-sm flex flex-col justify-between gap-3"
+              >
+                <div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-extrabold text-sm text-slate-900">{l.pupilName}</span>
+                    <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                      {l.durationMins} mins
+                    </span>
+                  </div>
+                  <div className="text-xs font-semibold text-slate-700 mt-1">
+                    {formatFriendlyDate(l.date)} • {l.startTime} –{' '}
+                    {minutesToTime(timeToMinutes(l.startTime) + l.durationMins)}
+                  </div>
+                  <div className="text-xs text-slate-600 mt-1.5 space-y-0.5">
+                    <div>
+                      <span className="font-bold text-slate-800">Pick-up:</span> {l.pickupLocation}
+                    </div>
+                    {l.dropoffLocation && l.dropoffLocation !== l.pickupLocation && (
+                      <div>
+                        <span className="font-bold text-slate-800">Drop-off:</span>{' '}
+                        {l.dropoffLocation}
+                      </div>
+                    )}
+                    {l.pupilNotes && (
+                      <div className="italic text-slate-500 mt-1">&ldquo;{l.pupilNotes}&rdquo;</div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
                   <button
-                    type="button"
-                    onClick={() => {
-                      onBookRequest({
-                        pupilAccount: pupil,
-                        date: selectedDate,
-                        startTime: customEarlyLateTime,
-                        durationMins,
-                        pickupLocation,
-                        pupilNotes: `[Out-of-Hours Request] ${pupilBookingNote}`,
-                        isOutOfHours: true,
-                        autoConfirm: false
-                      });
-                      setShowCustomTimeRequest(false);
-                    }}
-                    className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold"
+                    onClick={() => onApprove(l)}
+                    className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition"
                   >
-                    Send Custom Time Request
+                    Approve &amp; Confirm
+                  </button>
+                  <button
+                    onClick={() => onReject(l)}
+                    className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-rose-100 text-slate-700 hover:text-rose-700 text-xs font-bold transition"
+                  >
+                    Decline
                   </button>
                 </div>
               </div>
-            )}
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h3 className="text-base font-extrabold text-slate-900">
+              Schedule for {formatFriendlyDate(selectedDate)}
+            </h3>
+            <p className="text-xs text-slate-500">
+              Showing confirmed &amp; pending lessons with pick-up/drop-off addresses.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => onSelectDate(addDaysISO(selectedDate, -1))}
+              className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => onSelectDate(e.target.value)}
+              className="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 bg-white"
+            />
+            <button
+              onClick={() => onSelectDate(addDaysISO(selectedDate, 1))}
+              className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
           </div>
         </div>
 
-        <div className="lg:col-span-5 space-y-5">
-          <div className="bg-slate-900 text-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-800 flex items-start gap-3">
-            <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 flex-shrink-0">
-              <CalendarPlus className="w-5 h-5" />
-            </div>
-            <div className="text-xs leading-relaxed">
-              <h3 className="font-extrabold text-sm text-white">Sync Lessons to Your Phone</h3>
-              <p className="text-zinc-300 mt-0.5">
-                Calendar integration (Apple Calendar <code className="text-emerald-300">.ics</code> export &amp; 1-tap Google Calendar sync) can be found in the{' '}
-                <strong>Settings (⚙️)</strong> tab in the top-right corner.
+        {dayLessons.length === 0 ? (
+          <div className="text-center py-8 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+            <p className="text-sm font-semibold text-slate-600">
+              No lessons scheduled on {formatFriendlyDate(selectedDate)}.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {dayLessons.map((l) => (
+              <div
+                key={l.id}
+                className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="px-2.5 py-0.5 rounded-lg bg-slate-900 text-white text-xs font-extrabold">
+                      {l.startTime} – {minutesToTime(timeToMinutes(l.startTime) + l.durationMins)}
+                    </span>
+                    <span className="font-extrabold text-sm text-slate-900">{l.pupilName}</span>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                        l.status === 'confirmed'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-amber-100 text-amber-800'
+                      }`}
+                    >
+                      {l.status.toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-600">
+                    <span className="font-bold text-slate-800">Pick-up:</span> {l.pickupLocation}
+                    {l.dropoffLocation && l.dropoffLocation !== l.pickupLocation && (
+                      <>
+                        {' '}
+                        • <span className="font-bold text-slate-800">Drop-off:</span>{' '}
+                        {l.dropoffLocation}
+                      </>
+                    )}
+                  </div>
+                  <div className="text-xs text-slate-500">Focus: {l.notes}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <a
+                    href={buildGoogleCalendarUrl(l)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700"
+                  >
+                    + Google Cal
+                  </a>
+                  <button
+                    onClick={() => onCancel(l)}
+                    className="px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// PUPIL LESSONS DASHBOARD (WITH PICK-UP & DROP-OFF DROPDOWN PICKERS)
+// ============================================================================
+function PupilDashboardView({
+  currentUser,
+  lessons,
+  selectedDate,
+  onSelectDate,
+  computeSlotAvailability,
+  onCreateBooking,
+  onCancelLesson,
+  onConfirmAttendance,
+  onOpenSettings
+}) {
+  const [durationMins, setDurationMins] = useState(60);
+  const [selectedSlot, setSelectedSlot] = useState('');
+  const [pupilNotes, setPupilNotes] = useState('');
+
+  const locationOptions = useMemo(() => {
+    const opts = [];
+    const areaCode = (currentUser.postcode || 'PO19 - Chichester City Centre').split('-')[0].trim();
+    if (currentUser.homeAddress && currentUser.homeAddress.trim()) {
+      opts.push(`${areaCode} - ${currentUser.homeAddress.trim()} (Home)`);
+    } else if (currentUser.postcode) {
+      opts.push(currentUser.postcode);
+    }
+
+    if (Array.isArray(currentUser.savedLocations)) {
+      currentUser.savedLocations.forEach((loc) => {
+        const prefix = (loc.postcode || areaCode).split('-')[0].trim();
+        const formatted = `${prefix} - ${loc.address} (${loc.label})`;
+        if (!opts.includes(formatted)) opts.push(formatted);
+      });
+    }
+
+    WEST_SUSSEX_POSTCODES.forEach((pc) => {
+      if (!opts.includes(pc)) opts.push(pc);
+    });
+    return opts;
+  }, [currentUser]);
+
+  const [pickupLocation, setPickupLocation] = useState(locationOptions[0] || '');
+  const [dropoffLocation, setDropoffLocation] = useState(locationOptions[0] || '');
+
+  useEffect(() => {
+    if (locationOptions.length > 0) {
+      if (!locationOptions.includes(pickupLocation)) setPickupLocation(locationOptions[0]);
+      if (!locationOptions.includes(dropoffLocation)) setDropoffLocation(locationOptions[0]);
+    }
+  }, [locationOptions]);
+
+  const myLessons = useMemo(
+    () =>
+      lessons.filter(
+        (l) =>
+          l.pupilId === currentUser.id && (l.status === 'confirmed' || l.status === 'pending')
+      ),
+    [lessons, currentUser.id]
+  );
+
+  const upcomingReminderLesson = useMemo(
+    () =>
+      myLessons.find(
+        (l) => l.status === 'confirmed' && l.reminderSent && !l.pupilConfirmedAttendance
+      ),
+    [myLessons]
+  );
+
+  const computedSlots = useMemo(
+    () =>
+      computeSlotAvailability(
+        selectedDate,
+        { ...currentUser, postcode: pickupLocation },
+        durationMins,
+        dropoffLocation
+      ),
+    [selectedDate, currentUser, pickupLocation, dropoffLocation, durationMins, computeSlotAvailability]
+  );
+
+  const handleBookSubmit = (e) => {
+    e.preventDefault();
+    if (!selectedSlot) return;
+    onCreateBooking({
+      pupilAccount: currentUser,
+      date: selectedDate,
+      startTime: selectedSlot,
+      durationMins,
+      pickupLocation,
+      dropoffLocation,
+      pupilNotes: pupilNotes.trim()
+    });
+    setSelectedSlot('');
+    setPupilNotes('');
+  };
+
+  return (
+    <div className="space-y-6">
+      {upcomingReminderLesson && (
+        <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <div className="text-sm font-extrabold text-amber-950">
+                24-Hour Lesson Confirmation Needed
+              </div>
+              <p className="text-xs text-amber-800 mt-0.5">
+                Your {upcomingReminderLesson.durationMins}-min lesson is scheduled for{' '}
+                <strong>{formatFriendlyDate(upcomingReminderLesson.date)}</strong> at{' '}
+                <strong>{upcomingReminderLesson.startTime}</strong> (Pick-up:{' '}
+                {upcomingReminderLesson.pickupLocation}).
               </p>
             </div>
           </div>
+          <button
+            onClick={() => onConfirmAttendance(upcomingReminderLesson)}
+            className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shrink-0 transition"
+          >
+            Confirm Still Attending
+          </button>
+        </div>
+      )}
 
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
-            <h3 className="text-base font-extrabold text-slate-900">
-              My Bookings ({myLessons.length})
-            </h3>
+      <div className="bg-sky-50 border border-sky-200 rounded-2xl px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-sky-900">
+        <span>
+          <strong>Tip:</strong> You can save your full home address, alternative pick-up/drop-off
+          addresses, and sync lessons to your phone calendar inside{' '}
+          <strong>Settings (⚙️)</strong>.
+        </span>
+        <button
+          onClick={onOpenSettings}
+          className="text-sky-700 font-extrabold underline hover:text-sky-950 text-left sm:text-right shrink-0"
+        >
+          Open Settings →
+        </button>
+      </div>
 
-            {myLessons.length === 0 ? (
-              <p className="text-xs text-slate-500">You have no active bookings yet. Choose a slot on the left!</p>
-            ) : (
-              <div className="space-y-3">
-                {myLessons.map((lesson) => {
-                  const endStr = minutesToTime(timeToMinutes(lesson.startTime) + lesson.durationMins);
-                  const isMenuOpen = openCalendarMenuId === lesson.id;
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-5">
+          <div>
+            <h2 className="text-lg font-black text-slate-900">Book a Driving Lesson</h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Choose your date, lesson length, pick-up &amp; drop-off locations, and an available
+              time slot.
+            </p>
+          </div>
 
-                  return (
-                    <div
-                      key={lesson.id}
-                      className="rounded-xl border border-slate-200 p-4 space-y-3 bg-slate-50/60"
+          <form onSubmit={handleBookSubmit} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Lesson Date</label>
+                <input
+                  type="date"
+                  min={getTodayISO()}
+                  value={selectedDate}
+                  onChange={(e) => {
+                    onSelectDate(e.target.value);
+                    setSelectedSlot('');
+                  }}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm font-semibold"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Lesson Duration
+                </label>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {[
+                    { mins: 60, label: '1 hr' },
+                    { mins: 90, label: '1.5 hrs' },
+                    { mins: 120, label: '2 hrs' }
+                  ].map((opt) => (
+                    <button
+                      type="button"
+                      key={opt.mins}
+                      onClick={() => {
+                        setDurationMins(opt.mins);
+                        setSelectedSlot('');
+                      }}
+                      className={`py-2.5 rounded-xl text-xs font-bold border transition ${
+                        durationMins === opt.mins
+                          ? 'bg-slate-900 text-white border-slate-900'
+                          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                      }`}
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-sm font-extrabold text-slate-900">
-                              {formatReadableDate(lesson.date)}
-                            </span>
-                            <span className="text-xs font-mono font-bold bg-zinc-900 text-white px-2 py-0.5 rounded">
-                              {lesson.startTime} – {endStr}
-                            </span>
-                          </div>
-                          <p className="text-xs text-slate-600 mt-1 flex items-center gap-1">
-                            <MapPin className="w-3.5 h-3.5 text-emerald-600" />
-                            {lesson.pickupLocation}
-                          </p>
-                        </div>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
 
-                        <span
-                          className={`text-[10px] uppercase font-extrabold px-2.5 py-1 rounded-full ${
-                            lesson.status === 'confirmed'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : lesson.status === 'declined'
-                              ? 'bg-red-100 text-red-800'
-                              : 'bg-amber-100 text-amber-800'
-                          }`}
-                        >
-                          {lesson.status}
-                        </span>
-                      </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Confirm Pick-Up Location
+                </label>
+                <select
+                  value={pickupLocation}
+                  onChange={(e) => {
+                    setPickupLocation(e.target.value);
+                    setSelectedSlot('');
+                  }}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-xs font-semibold"
+                >
+                  {locationOptions.map((loc) => (
+                    <option key={`pu-${loc}`} value={loc}>
+                      {loc}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-                      {lesson.status === 'declined' && lesson.declineReason && (
-                        <div className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-xs text-red-800">
-                          <strong>Instructor Note:</strong> {lesson.declineReason}
-                        </div>
-                      )}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Confirm Drop-Off Location
+                </label>
+                <select
+                  value={dropoffLocation}
+                  onChange={(e) => {
+                    setDropoffLocation(e.target.value);
+                    setSelectedSlot('');
+                  }}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-xs font-semibold"
+                >
+                  {locationOptions.map((loc) => (
+                    <option key={`do-${loc}`} value={loc}>
+                      {loc}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
 
-                      <div className="p-3 rounded-lg bg-white border border-slate-200 text-xs space-y-1.5">
-                        <div>
-                          <span className="font-bold text-slate-800">Instructor Focus: </span>
-                          <span className="text-slate-600">
-                            {lesson.notes || 'Standard syllabus progression'}
-                          </span>
-                        </div>
-
-                        {editingPupilNoteId === lesson.id ? (
-                          <div className="flex gap-1.5 pt-1">
-                            <input
-                              type="text"
-                              value={pupilNoteDraft}
-                              onChange={(e) => setPupilNoteDraft(e.target.value)}
-                              placeholder="Add your own note for the calendar entry..."
-                              className="flex-1 rounded-lg border border-slate-300 px-2.5 py-1 text-xs bg-white text-slate-900"
-                            />
-                            <button
-                              onClick={() => {
-                                onUpdateNotes(lesson.id, undefined, pupilNoteDraft);
-                                setEditingPupilNoteId(null);
-                              }}
-                              className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-bold"
-                            >
-                              Save
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <span className="font-bold text-indigo-800">My Lesson Note: </span>
-                              <span className="text-slate-600">{lesson.pupilNotes || 'None'}</span>
-                            </div>
-                            <button
-                              onClick={() => {
-                                setEditingPupilNoteId(lesson.id);
-                                setPupilNoteDraft(lesson.pupilNotes || '');
-                              }}
-                              className="text-indigo-600 hover:underline font-bold"
-                            >
-                              Edit Note
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                        <div className="relative">
-                          <button
-                            type="button"
-                            onClick={() => setOpenCalendarMenuId(isMenuOpen ? null : lesson.id)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-xs font-bold text-slate-800"
-                          >
-                            <CalendarPlus className="w-3.5 h-3.5 text-emerald-600" />
-                            Add to Calendar
-                            <ChevronDown className="w-3.5 h-3.5" />
-                          </button>
-
-                          {isMenuOpen && (
-                            <div className="absolute left-0 mt-1.5 w-52 bg-white rounded-xl shadow-xl border border-slate-200 py-1.5 z-30 text-xs font-semibold">
-                              <a
-                                href={buildGoogleCalendarUrl(lesson)}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex items-center justify-between px-3.5 py-2 hover:bg-slate-50 text-slate-800"
-                              >
-                                <span>Google Calendar</span>
-                                <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
-                              </a>
-                              <button
-                                onClick={() => {
-                                  const ics = buildLessonICSContent([lesson], pupil.name);
-                                  downloadICSFile(`DrivingLesson-${lesson.date}.ics`, ics);
-                                  setOpenCalendarMenuId(null);
-                                }}
-                                className="w-full flex items-center justify-between px-3.5 py-2 hover:bg-slate-50 text-slate-800 text-left"
-                              >
-                                <span>Apple Calendar (iOS / Mac .ics)</span>
-                                <Download className="w-3.5 h-3.5 text-slate-400" />
-                              </button>
-                              <a
-                                href={buildOutlookWebUrl(lesson)}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex items-center justify-between px-3.5 py-2 hover:bg-slate-50 text-slate-800"
-                              >
-                                <span>Outlook Calendar</span>
-                                <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
-                              </a>
-                              <a
-                                href={buildYahooCalendarUrl(lesson)}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex items-center justify-between px-3.5 py-2 hover:bg-slate-50 text-slate-800"
-                              >
-                                <span>Yahoo Calendar</span>
-                                <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
-                              </a>
-                            </div>
-                          )}
-                        </div>
-
-                        {lesson.status !== 'declined' && (
-                          <button
-                            onClick={() => onCancelLesson(lesson)}
-                            className="px-3 py-1.5 rounded-lg text-xs font-bold text-red-600 hover:bg-red-50 border border-transparent hover:border-red-200"
-                          >
-                            Cancel Booking
-                          </button>
-                        )}
-                      </div>
-                    </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-2">
+                Available Start Times on {formatFriendlyDate(selectedDate)}
+              </label>
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                {computedSlots.map((slot) => {
+                  const isSelected = selectedSlot === slot.time;
+                  return (
+                    <button
+                      type="button"
+                      key={slot.time}
+                      disabled={!slot.available}
+                      onClick={() => setSelectedSlot(slot.time)}
+                      title={slot.available ? slot.travelNote || 'Available' : slot.reason}
+                      className={`py-2 px-2 rounded-xl text-xs font-bold border transition ${
+                        !slot.available
+                          ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed line-through'
+                          : isSelected
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                          : 'bg-white text-slate-800 border-slate-300 hover:border-emerald-500 hover:bg-emerald-50'
+                      }`}
+                    >
+                      {slot.time}
+                    </button>
                   );
                 })}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Optional Note for Instructor
+              </label>
+              <input
+                type="text"
+                value={pupilNotes}
+                onChange={(e) => setPupilNotes(e.target.value)}
+                placeholder="e.g. Would like to practise parallel parking or A27 roundabouts"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-xs"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={!selectedSlot}
+              className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold text-sm shadow-sm transition"
+            >
+              {selectedSlot
+                ? `Request ${durationMins}-Min Lesson at ${selectedSlot}`
+                : 'Select an Available Time Slot Above'}
+            </button>
+          </form>
+        </div>
+
+        <div className="lg:col-span-5 space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-3">
+            <h3 className="text-base font-extrabold text-slate-900">
+              My Upcoming Lessons ({myLessons.length})
+            </h3>
+            {myLessons.length === 0 ? (
+              <p className="text-xs text-slate-500 py-4">
+                You have no upcoming lessons booked yet. Choose a date and time slot to request your
+                next lesson!
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {myLessons.map((l) => (
+                  <div
+                    key={l.id}
+                    className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 space-y-1.5"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-extrabold text-slate-900">
+                        {formatFriendlyDate(l.date)} • {l.startTime}
+                      </span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          l.status === 'confirmed'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
+                        {l.status.toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-600">
+                      <div>
+                        <strong>Pick-up:</strong> {l.pickupLocation}
+                      </div>
+                      {l.dropoffLocation && l.dropoffLocation !== l.pickupLocation && (
+                        <div>
+                          <strong>Drop-off:</strong> {l.dropoffLocation}
+                        </div>
+                      )}
+                      <div className="text-slate-500 mt-0.5">Focus: {l.notes}</div>
+                    </div>
+                    <div className="pt-1.5 flex items-center justify-between">
+                      <a
+                        href={buildGoogleCalendarUrl(l)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[11px] font-bold text-emerald-700 hover:underline"
+                      >
+                        + Add to Google Calendar
+                      </a>
+                      <button
+                        onClick={() => onCancelLesson(l)}
+                        className="text-[11px] font-bold text-rose-600 hover:underline"
+                      >
+                        Cancel Lesson
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -2596,186 +2129,102 @@ function PupilDashboardView({
 }
 
 // ============================================================================
-// SUB-COMPONENT: GOOGLE CALENDAR-STYLE DIARY (MONTH, WEEK & SCHEDULE VIEWS)
+// GOOGLE CALENDAR STYLE DIARY VIEW (MONTH, WEEK & SCHEDULE VIEWS)
 // ============================================================================
 function GoogleStyleDiaryView({
   isInstructor,
-  currentUser,
   lessons,
-  unavailability = [],
-  rotaEvents = [],
+  unavailability,
+  rotaEvents,
   selectedDate,
-  setSelectedDate,
-  onOpenSettings,
-  onOpenDashboard
+  onSelectDate,
+  onOpenAddLesson,
+  onApprove,
+  onReject,
+  onCancel
 }) {
-  const [viewMode, setViewMode] = useState('month'); // 'month' | 'week' | 'schedule'
-  const [cursorDate, setCursorDate] = useState(() => selectedDate || getUpcomingDateStr(0));
+  const [viewMode, setViewMode] = useState('month');
 
-  const toDateStr = (dt) =>
-    `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+  const [selY, selM, selD] = selectedDate.split('-').map(Number);
+  const currentMonthDate = new Date(selY, selM - 1, 1);
 
-  const parseYMD = (str) => {
-    const [y, m, d] = (str || getUpcomingDateStr(0)).split('-').map(Number);
-    return new Date(y, m - 1, d);
-  };
+  const monthLabel = currentMonthDate.toLocaleDateString('en-GB', {
+    month: 'long',
+    year: 'numeric'
+  });
 
-  const todayStr = getUpcomingDateStr(0);
-
-  // Filter lessons visible to current user
-  const visibleLessons = useMemo(() => {
-    const active = lessons.filter((l) => l.status === 'confirmed' || l.status === 'pending');
-    return isInstructor ? active : active.filter((l) => l.pupilId === currentUser.id);
-  }, [lessons, isInstructor, currentUser.id]);
-
-  const lessonsByDate = useMemo(() => {
-    const map = {};
-    visibleLessons.forEach((l) => {
-      if (!map[l.date]) map[l.date] = [];
-      map[l.date].push(l);
-    });
-    Object.values(map).forEach((arr) =>
-      arr.sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime))
-    );
-    return map;
-  }, [visibleLessons]);
-
-  const blocksByDate = useMemo(() => {
-    const map = {};
-    if (!isInstructor) return map;
-    [...unavailability, ...rotaEvents].forEach((b) => {
-      if (!map[b.date]) map[b.date] = [];
-      map[b.date].push(b);
-    });
-    return map;
-  }, [isInstructor, unavailability, rotaEvents]);
-
-  const handleNavigate = (dir) => {
-    const dt = parseYMD(cursorDate);
+  const navigatePeriod = (dir) => {
     if (viewMode === 'month') {
-      dt.setDate(1);
-      dt.setMonth(dt.getMonth() + dir);
+      const next = new Date(selY, selM - 1 + dir, 1);
+      onSelectDate(
+        `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-01`
+      );
     } else {
-      dt.setDate(dt.getDate() + dir * 7);
+      onSelectDate(addDaysISO(selectedDate, dir * 7));
     }
-    const nextStr = toDateStr(dt);
-    setCursorDate(nextStr);
-    setSelectedDate(nextStr);
   };
 
-  // Build Month Grid (Monday-start UK calendar)
-  const monthGridDays = useMemo(() => {
-    const anchor = parseYMD(cursorDate);
-    const year = anchor.getFullYear();
-    const month = anchor.getMonth();
-    const firstOfMonth = new Date(year, month, 1);
-    const startOffset = (firstOfMonth.getDay() + 6) % 7; // Mon = 0 ... Sun = 6
-    const gridStart = new Date(year, month, 1 - startOffset);
-
-    const days = [];
-    for (let i = 0; i < 42; i++) {
-      const cell = new Date(gridStart);
-      cell.setDate(gridStart.getDate() + i);
-      days.push({
-        dateStr: toDateStr(cell),
-        dayNum: cell.getDate(),
-        inCurrentMonth: cell.getMonth() === month
-      });
+  const monthDays = useMemo(() => {
+    const firstDayOfWeek = (currentMonthDate.getDay() + 6) % 7;
+    const daysInMonth = new Date(selY, selM, 0).getDate();
+    const cells = [];
+    for (let i = 0; i < firstDayOfWeek; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) {
+      cells.push(
+        `${selY}-${String(selM).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+      );
     }
-    return days;
-  }, [cursorDate]);
+    return cells;
+  }, [selY, selM]);
 
-  // Build Week Grid (Monday - Sunday)
-  const weekGridDays = useMemo(() => {
-    const anchor = parseYMD(cursorDate);
-    const startOffset = (anchor.getDay() + 6) % 7;
-    const monday = new Date(anchor);
-    monday.setDate(anchor.getDate() - startOffset);
+  const weekDays = useMemo(() => {
+    const dt = new Date(selY, selM - 1, selD);
+    const mondayOffset = (dt.getDay() + 6) % 7;
+    const mondayISO = addDaysISO(selectedDate, -mondayOffset);
+    return Array.from({ length: 7 }, (_, i) => addDaysISO(mondayISO, i));
+  }, [selectedDate, selY, selM, selD]);
 
-    const days = [];
-    for (let i = 0; i < 7; i++) {
-      const cell = new Date(monday);
-      cell.setDate(monday.getDate() + i);
-      days.push({
-        dateStr: toDateStr(cell),
-        dayNum: cell.getDate(),
-        weekdayShort: cell.toLocaleDateString('en-GB', { weekday: 'short' }),
-        monthShort: cell.toLocaleDateString('en-GB', { month: 'short' })
-      });
-    }
-    return days;
-  }, [cursorDate]);
+  const activeLessons = lessons.filter(
+    (l) => l.status === 'confirmed' || l.status === 'pending'
+  );
 
-  // Build Upcoming Schedule List (next 60 days)
-  const upcomingScheduleDates = useMemo(() => {
-    const allDates = new Set([
-      ...Object.keys(lessonsByDate).filter((d) => d >= todayStr),
-      ...Object.keys(blocksByDate).filter((d) => d >= todayStr)
-    ]);
-    return Array.from(allDates).sort();
-  }, [lessonsByDate, blocksByDate, todayStr]);
+  const selectedDayLessons = activeLessons.filter((l) => l.date === selectedDate);
+  const selectedDayUnavail = unavailability.filter((u) => u.date === selectedDate);
+  const selectedDayRota = rotaEvents.filter((r) => r.date === selectedDate);
 
-  const headerTitle = useMemo(() => {
-    const anchor = parseYMD(cursorDate);
-    if (viewMode === 'month') {
-      return anchor.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
-    }
-    if (viewMode === 'week') {
-      const first = weekGridDays[0];
-      const last = weekGridDays[6];
-      return `${first.dayNum} ${first.monthShort} – ${last.dayNum} ${last.monthShort} ${anchor.getFullYear()}`;
-    }
-    return 'Upcoming Lesson Schedule';
-  }, [cursorDate, viewMode, weekGridDays]);
-
-  const selectedDayLessons = lessonsByDate[selectedDate] || [];
-  const selectedDayBlocks = blocksByDate[selectedDate] || [];
+  const upcomingScheduleLessons = activeLessons
+    .filter((l) => l.date >= getTodayISO())
+    .sort((a, b) => (a.date + a.startTime).localeCompare(b.date + b.startTime));
 
   return (
     <div className="space-y-5">
-      {/* Top Google Calendar-Style Toolbar */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
           <button
-            type="button"
-            onClick={() => {
-              setCursorDate(todayStr);
-              setSelectedDate(todayStr);
-            }}
-            className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-xs font-extrabold text-slate-800 shadow-xs transition cursor-pointer"
+            onClick={() => onSelectDate(getTodayISO())}
+            className="px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-xs font-bold text-slate-800"
           >
             Today
           </button>
-
-          {viewMode !== 'schedule' && (
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => handleNavigate(-1)}
-                className="p-2 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 font-bold text-xs cursor-pointer"
-                title="Previous"
-              >
-                ◀
-              </button>
-              <button
-                type="button"
-                onClick={() => handleNavigate(1)}
-                className="p-2 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 font-bold text-xs cursor-pointer"
-                title="Next"
-              >
-                ▶
-              </button>
-            </div>
-          )}
-
-          <h2 className="text-base sm:text-xl font-black text-slate-900 tracking-tight">
-            {headerTitle}
-          </h2>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => navigatePeriod(-1)}
+              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-700"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => navigatePeriod(1)}
+              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-700"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+          <h2 className="text-base sm:text-lg font-black text-slate-900 ml-1">{monthLabel}</h2>
         </div>
 
-        {/* View Switcher: Month / Week / Schedule */}
-        <div className="flex items-center gap-2">
-          <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="inline-flex rounded-xl bg-slate-100 p-1">
             {[
               { id: 'month', label: 'Month' },
               { id: 'week', label: 'Week' },
@@ -2783,11 +2232,10 @@ function GoogleStyleDiaryView({
             ].map((v) => (
               <button
                 key={v.id}
-                type="button"
                 onClick={() => setViewMode(v.id)}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
                   viewMode === v.id
-                    ? 'bg-zinc-900 text-white shadow-sm'
+                    ? 'bg-slate-900 text-white shadow-sm'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -2795,111 +2243,99 @@ function GoogleStyleDiaryView({
               </button>
             ))}
           </div>
-        </div>
-      </div>
 
-      {/* Legend + Settings Note */}
-      <div className="flex flex-wrap items-center justify-between gap-3 px-1 text-xs">
-        <div className="flex flex-wrap items-center gap-4 font-semibold text-slate-600">
-          <span className="inline-flex items-center gap-1.5">
-            <span className="w-5 h-1.5 rounded-full bg-emerald-500 inline-block" />
-            Confirmed Lesson
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="w-5 h-1.5 rounded-full bg-amber-500 inline-block" />
-            Pending Request
-          </span>
           {isInstructor && (
-            <span className="inline-flex items-center gap-1.5">
-              <span className="w-5 h-1.5 rounded-full bg-indigo-500 inline-block" />
-              Unavailable / Work Rota
-            </span>
+            <button
+              onClick={onOpenAddLesson}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Lesson</span>
+            </button>
           )}
         </div>
-
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          className="text-xs font-bold text-emerald-700 hover:underline inline-flex items-center gap-1 cursor-pointer"
-        >
-          <Settings className="w-3.5 h-3.5" />
-          Calendar Integration &amp; Sync in Settings
-        </button>
       </div>
 
-      {/* MONTH VIEW */}
+      <div className="flex items-center gap-4 px-1 text-xs text-slate-600 flex-wrap">
+        <span className="inline-flex items-center gap-1.5 font-semibold">
+          <span className="w-4 h-1.5 rounded-full bg-emerald-500 inline-block" />
+          Confirmed Lesson
+        </span>
+        <span className="inline-flex items-center gap-1.5 font-semibold">
+          <span className="w-4 h-1.5 rounded-full bg-amber-400 inline-block" />
+          Pending Request
+        </span>
+        {isInstructor && (
+          <span className="inline-flex items-center gap-1.5 font-semibold">
+            <span className="w-4 h-1.5 rounded-full bg-indigo-400 inline-block" />
+            Work Rota / Unavailable
+          </span>
+        )}
+      </div>
+
       {viewMode === 'month' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="grid grid-cols-7 bg-slate-50 border-b border-slate-200">
+        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+          <div className="grid grid-cols-7 bg-slate-50 border-b border-slate-200 text-center py-2 text-[11px] font-extrabold text-slate-500 uppercase">
             {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
-              <div
-                key={d}
-                className="py-2.5 text-center text-[11px] font-extrabold uppercase tracking-wider text-slate-500"
-              >
-                {d}
-              </div>
+              <div key={d}>{d}</div>
             ))}
           </div>
-
-          <div className="grid grid-cols-7 divide-x divide-y divide-slate-200">
-            {monthGridDays.map((cell) => {
-              const dayLessons = lessonsByDate[cell.dateStr] || [];
-              const dayBlocks = blocksByDate[cell.dateStr] || [];
-              const isSelected = selectedDate === cell.dateStr;
-              const isToday = todayStr === cell.dateStr;
+          <div className="grid grid-cols-7">
+            {monthDays.map((iso, idx) => {
+              if (!iso) {
+                return (
+                  <div
+                    key={`empty-${idx}`}
+                    className="h-20 sm:h-24 border-b border-r border-slate-100 bg-slate-50/40"
+                  />
+                );
+              }
+              const dayNum = Number(iso.split('-')[2]);
+              const isSelected = iso === selectedDate;
+              const isToday = iso === getTodayISO();
+              const dLessons = activeLessons.filter((l) => l.date === iso);
+              const hasBlocked =
+                isInstructor &&
+                (unavailability.some((u) => u.date === iso) ||
+                  rotaEvents.some((r) => r.date === iso));
 
               return (
                 <button
-                  key={cell.dateStr}
-                  type="button"
-                  onClick={() => {
-                    setSelectedDate(cell.dateStr);
-                    setCursorDate(cell.dateStr);
-                  }}
-                  className={`min-h-[84px] sm:min-h-[104px] p-1.5 sm:p-2 flex flex-col justify-between text-left transition cursor-pointer ${
-                    !cell.inCurrentMonth ? 'bg-slate-50/70 text-slate-400' : 'bg-white text-slate-900'
-                  } ${isSelected ? 'ring-2 ring-inset ring-emerald-600 bg-emerald-50/30' : 'hover:bg-slate-50'}`}
+                  key={iso}
+                  onClick={() => onSelectDate(iso)}
+                  className={`h-20 sm:h-24 p-1.5 sm:p-2 border-b border-r border-slate-100 text-left flex flex-col justify-between transition ${
+                    isSelected ? 'bg-emerald-50/70 ring-2 ring-inset ring-emerald-500' : 'hover:bg-slate-50'
+                  }`}
                 >
-                  <div className="w-full flex items-center justify-between">
-                    <span
-                      className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-extrabold ${
-                        isToday
-                          ? 'bg-emerald-600 text-white'
-                          : isSelected
-                          ? 'bg-zinc-900 text-white'
-                          : ''
-                      }`}
-                    >
-                      {cell.dayNum}
-                    </span>
-                    {dayLessons.length > 0 && (
-                      <span className="text-[10px] font-extrabold text-slate-500 hidden sm:inline">
-                        {dayLessons.length}x
-                      </span>
-                    )}
-                  </div>
+                  <span
+                    className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-extrabold ${
+                      isToday
+                        ? 'bg-emerald-600 text-white'
+                        : isSelected
+                        ? 'text-emerald-900'
+                        : 'text-slate-700'
+                    }`}
+                  >
+                    {dayNum}
+                  </span>
 
-                  {/* Coloured Lines Indicating Booked Lessons / Rota Blocks */}
-                  <div className="w-full space-y-1 mt-1.5">
-                    {dayLessons.slice(0, 3).map((l) => (
-                      <div key={l.id} className="w-full">
-                        <div
-                          className={`h-1.5 w-full rounded-full ${
-                            l.status === 'confirmed' ? 'bg-emerald-500' : 'bg-amber-500'
-                          }`}
-                        />
-                        <span className="hidden md:block text-[10px] font-bold truncate text-slate-700 mt-0.5">
+                  <div className="w-full space-y-1 overflow-hidden">
+                    {dLessons.slice(0, 3).map((l) => (
+                      <div
+                        key={l.id}
+                        className={`h-1.5 sm:h-4 rounded-full sm:rounded px-1 text-[10px] font-bold truncate flex items-center ${
+                          l.status === 'confirmed'
+                            ? 'bg-emerald-500 text-white'
+                            : 'bg-amber-400 text-slate-950'
+                        }`}
+                      >
+                        <span className="hidden sm:inline truncate">
                           {l.startTime} {isInstructor ? l.pupilName.split(' ')[0] : 'Lesson'}
                         </span>
                       </div>
                     ))}
-                    {dayLessons.length > 3 && (
-                      <span className="block text-[9px] font-extrabold text-emerald-700">
-                        +{dayLessons.length - 3} more
-                      </span>
-                    )}
-                    {dayBlocks.length > 0 && (
-                      <div className="h-1.5 w-full rounded-full bg-indigo-500" title={dayBlocks[0].title} />
+                    {hasBlocked && (
+                      <div className="h-1.5 rounded-full bg-indigo-400 w-full" />
                     )}
                   </div>
                 </button>
@@ -2909,261 +2345,174 @@ function GoogleStyleDiaryView({
         </div>
       )}
 
-      {/* WEEK VIEW */}
       {viewMode === 'week' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="grid grid-cols-1 sm:grid-cols-7 divide-y sm:divide-y-0 sm:divide-x divide-slate-200">
-            {weekGridDays.map((day) => {
-              const dayLessons = lessonsByDate[day.dateStr] || [];
-              const dayBlocks = blocksByDate[day.dateStr] || [];
-              const isSelected = selectedDate === day.dateStr;
-              const isToday = todayStr === day.dateStr;
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+          <div className="grid grid-cols-7 gap-2">
+            {weekDays.map((iso) => {
+              const dt = new Date(
+                Number(iso.slice(0, 4)),
+                Number(iso.slice(5, 7)) - 1,
+                Number(iso.slice(8, 10))
+              );
+              const isSelected = iso === selectedDate;
+              const dLessons = activeLessons.filter((l) => l.date === iso);
+              const hasBlocked =
+                isInstructor &&
+                (unavailability.some((u) => u.date === iso) ||
+                  rotaEvents.some((r) => r.date === iso));
 
               return (
-                <div
-                  key={day.dateStr}
-                  onClick={() => {
-                    setSelectedDate(day.dateStr);
-                    setCursorDate(day.dateStr);
-                  }}
-                  className={`min-h-[150px] sm:min-h-[260px] p-3 flex flex-col justify-between cursor-pointer transition ${
-                    isSelected ? 'bg-emerald-50/40 ring-2 ring-inset ring-emerald-600' : 'hover:bg-slate-50'
+                <button
+                  key={iso}
+                  onClick={() => onSelectDate(iso)}
+                  className={`p-2.5 rounded-2xl border text-center flex flex-col items-center gap-1.5 transition ${
+                    isSelected
+                      ? 'bg-emerald-50 border-emerald-500 ring-1 ring-emerald-500'
+                      : 'bg-white border-slate-200 hover:bg-slate-50'
                   }`}
                 >
-                  <div>
-                    <div className="flex sm:flex-col items-center justify-between sm:justify-center pb-2.5 mb-2.5 border-b border-slate-100">
-                      <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
-                        {day.weekdayShort}
-                      </span>
-                      <span
-                        className={`mt-0.5 w-8 h-8 rounded-full flex items-center justify-center text-sm font-black ${
-                          isToday
-                            ? 'bg-emerald-600 text-white'
-                            : isSelected
-                            ? 'bg-zinc-900 text-white'
-                            : 'text-slate-900'
+                  <span className="text-[11px] font-bold text-slate-500 uppercase">
+                    {dt.toLocaleDateString('en-GB', { weekday: 'short' })}
+                  </span>
+                  <span className="text-base font-black text-slate-900">{dt.getDate()}</span>
+                  <div className="w-full space-y-1 mt-1">
+                    {dLessons.map((l) => (
+                      <div
+                        key={l.id}
+                        className={`h-1.5 rounded-full w-full ${
+                          l.status === 'confirmed' ? 'bg-emerald-500' : 'bg-amber-400'
                         }`}
-                      >
-                        {day.dayNum}
-                      </span>
-                    </div>
-
-                    {/* Coloured Line Indicator at Top of Booked Dates */}
-                    {(dayLessons.length > 0 || dayBlocks.length > 0) && (
-                      <div className="space-y-1 mb-2.5">
-                        {dayLessons.length > 0 && (
-                          <div
-                            className={`h-1.5 w-full rounded-full ${
-                              dayLessons.some((l) => l.status === 'confirmed')
-                                ? 'bg-emerald-500'
-                                : 'bg-amber-500'
-                            }`}
-                          />
-                        )}
-                        {dayBlocks.length > 0 && (
-                          <div className="h-1.5 w-full rounded-full bg-indigo-500" />
-                        )}
-                      </div>
-                    )}
-
-                    {/* Event Pills inside Week Column */}
-                    <div className="space-y-1.5">
-                      {dayLessons.map((l) => {
-                        const endStr = minutesToTime(timeToMinutes(l.startTime) + l.durationMins);
-                        return (
-                          <div
-                            key={l.id}
-                            className={`p-2 rounded-xl border text-[11px] leading-snug ${
-                              l.status === 'confirmed'
-                                ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
-                                : 'bg-amber-50 border-amber-200 text-amber-950'
-                            }`}
-                          >
-                            <span className="font-mono font-extrabold block">
-                              {l.startTime}–{endStr}
-                            </span>
-                            <span className="font-bold block truncate">
-                              {isInstructor ? l.pupilName : `${l.durationMins / 60}h Lesson`}
-                            </span>
-                          </div>
-                        );
-                      })}
-                      {dayBlocks.map((b) => (
-                        <div
-                          key={b.id}
-                          className="p-2 rounded-xl bg-indigo-50 border border-indigo-200 text-[11px] text-indigo-950"
-                        >
-                          <span className="font-bold block truncate">{b.title}</span>
-                          <span className="font-mono text-[10px]">
-                            {b.allDay ? 'All Day' : `${b.startTime}–${b.endTime}`}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
+                      />
+                    ))}
+                    {hasBlocked && <div className="h-1.5 rounded-full w-full bg-indigo-400" />}
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
         </div>
       )}
 
-      {/* SCHEDULE VIEW */}
-      {viewMode === 'schedule' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm divide-y divide-slate-100">
-          {upcomingScheduleDates.length === 0 ? (
-            <div className="p-8 text-center text-sm text-slate-500">
-              No upcoming lessons or blocks scheduled.
-            </div>
+      {viewMode === 'schedule' ? (
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-3">
+          <h3 className="text-base font-extrabold text-slate-900">Upcoming Lesson Schedule</h3>
+          {upcomingScheduleLessons.length === 0 ? (
+            <p className="text-xs text-slate-500 py-4">No upcoming lessons in the diary.</p>
           ) : (
-            upcomingScheduleDates.map((dStr) => {
-              const dLessons = lessonsByDate[dStr] || [];
-              const dBlocks = blocksByDate[dStr] || [];
-              return (
-                <div key={dStr} className="p-4 sm:p-5 flex flex-col sm:flex-row gap-4">
-                  <div className="sm:w-44 flex-shrink-0">
-                    <span className="text-sm font-black text-slate-900 block">
-                      {formatReadableDate(dStr)}
-                    </span>
-                    {dStr === todayStr && (
-                      <span className="inline-block mt-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold uppercase">
-                        Today
-                      </span>
-                    )}
+            <div className="space-y-2.5">
+              {upcomingScheduleLessons.map((l) => (
+                <div
+                  key={l.id}
+                  className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                >
+                  <div>
+                    <div className="text-xs font-extrabold text-slate-900">
+                      {formatFriendlyDate(l.date)} • {l.startTime} –{' '}
+                      {minutesToTime(timeToMinutes(l.startTime) + l.durationMins)} ({l.pupilName})
+                    </div>
+                    <div className="text-xs text-slate-600 mt-0.5">
+                      Pick-up: {l.pickupLocation}
+                      {l.dropoffLocation && l.dropoffLocation !== l.pickupLocation
+                        ? ` • Drop-off: ${l.dropoffLocation}`
+                        : ''}
+                    </div>
                   </div>
-
-                  <div className="flex-1 space-y-2">
-                    {dLessons.map((l) => {
-                      const endStr = minutesToTime(timeToMinutes(l.startTime) + l.durationMins);
-                      return (
-                        <div
-                          key={l.id}
-                          className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50/70"
-                        >
-                          <div className="flex items-center gap-3">
-                            <span
-                              className={`w-1.5 h-8 rounded-full ${
-                                l.status === 'confirmed' ? 'bg-emerald-500' : 'bg-amber-500'
-                              }`}
-                            />
-                            <div>
-                              <span className="font-mono text-xs font-extrabold text-slate-900">
-                                {l.startTime} – {endStr} ({l.durationMins / 60}h)
-                              </span>
-                              <span className="block text-xs font-bold text-slate-700">
-                                {isInstructor ? l.pupilName : 'Driving Lesson'} • {l.pickupLocation}
-                              </span>
-                            </div>
-                          </div>
-                          <span
-                            className={`text-[10px] uppercase font-extrabold px-2.5 py-1 rounded-full ${
-                              l.status === 'confirmed'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : 'bg-amber-100 text-amber-800'
-                            }`}
-                          >
-                            {l.status}
-                          </span>
-                        </div>
-                      );
-                    })}
-
-                    {dBlocks.map((b) => (
-                      <div
-                        key={b.id}
-                        className="flex items-center gap-3 p-3 rounded-xl border border-indigo-200 bg-indigo-50/60"
-                      >
-                        <span className="w-1.5 h-8 rounded-full bg-indigo-500" />
-                        <div>
-                          <span className="font-mono text-xs font-extrabold text-indigo-950">
-                            {b.allDay ? 'All Day' : `${b.startTime} – ${b.endTime}`}
-                          </span>
-                          <span className="block text-xs font-bold text-indigo-800">{b.title}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold self-start sm:self-center ${
+                      l.status === 'confirmed'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-amber-100 text-amber-800'
+                    }`}
+                  >
+                    {l.status.toUpperCase()}
+                  </span>
                 </div>
-              );
-            })
+              ))}
+            </div>
           )}
         </div>
-      )}
-
-      {/* Selected Day Agenda Drawer (for Month & Week views) */}
-      {viewMode !== 'schedule' && (
+      ) : (
         <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-base font-extrabold text-slate-900">
-              Agenda for {formatReadableDate(selectedDate)}
-            </h3>
-            <button
-              type="button"
-              onClick={onOpenDashboard}
-              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition cursor-pointer"
-            >
-              {isInstructor ? 'Manage in Home Tab' : 'Book Lesson for This Date'}
-            </button>
-          </div>
+          <h3 className="text-base font-extrabold text-slate-900">
+            Agenda for {formatFriendlyDate(selectedDate)}
+          </h3>
 
-          {selectedDayLessons.length === 0 && selectedDayBlocks.length === 0 ? (
-            <p className="text-xs text-slate-500">
-              No lessons or blocks on {formatReadableDate(selectedDate)}.
+          {isInstructor && (selectedDayRota.length > 0 || selectedDayUnavail.length > 0) && (
+            <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-200 text-xs text-indigo-950 space-y-1">
+              <div className="font-extrabold">Blocked Shifts / Unavailability:</div>
+              {selectedDayRota.map((r) => (
+                <div key={r.id}>
+                  • {r.summary}: {r.startTime} – {r.endTime} (+1hr pre/post travel buffer)
+                </div>
+              ))}
+              {selectedDayUnavail.map((u) => (
+                <div key={u.id}>
+                  • {u.reason}: {u.allDay ? 'All Day' : `${u.startTime} – ${u.endTime}`}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {selectedDayLessons.length === 0 ? (
+            <p className="text-xs text-slate-500 py-2">
+              No lessons booked on {formatFriendlyDate(selectedDate)}.
             </p>
           ) : (
-            <div className="space-y-2">
-              {selectedDayLessons.map((l) => {
-                const endStr = minutesToTime(timeToMinutes(l.startTime) + l.durationMins);
-                return (
-                  <div
-                    key={l.id}
-                    className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`w-1.5 h-9 rounded-full ${
-                          l.status === 'confirmed' ? 'bg-emerald-500' : 'bg-amber-500'
-                        }`}
-                      />
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-extrabold text-xs bg-zinc-900 text-white px-2 py-0.5 rounded">
-                            {l.startTime} – {endStr}
-                          </span>
-                          <span className="font-extrabold text-sm text-slate-900">
-                            {isInstructor ? l.pupilName : `${l.durationMins / 60}h Manual Lesson`}
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-600 mt-1">
-                          {l.pickupLocation} • Focus: {l.notes || 'Syllabus progression'}
-                        </p>
-                      </div>
-                    </div>
-
-                    <span
-                      className={`text-[10px] uppercase font-extrabold px-2.5 py-1 rounded-full ${
-                        l.status === 'confirmed'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-amber-100 text-amber-800'
-                      }`}
-                    >
-                      {l.status}
-                    </span>
-                  </div>
-                );
-              })}
-
-              {selectedDayBlocks.map((b) => (
+            <div className="space-y-2.5">
+              {selectedDayLessons.map((l) => (
                 <div
-                  key={b.id}
-                  className="p-3.5 rounded-xl border border-indigo-200 bg-indigo-50/70 flex items-center gap-3"
+                  key={l.id}
+                  className="p-4 rounded-xl border border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                 >
-                  <span className="w-1.5 h-8 rounded-full bg-indigo-500" />
-                  <div>
-                    <span className="text-xs font-extrabold text-indigo-950 block">{b.title}</span>
-                    <span className="text-xs text-indigo-800">
-                      {b.allDay ? 'All Day Unavailable' : `${b.startTime} – ${b.endTime}`}
-                    </span>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-extrabold text-sm text-slate-900">
+                        {l.startTime} – {minutesToTime(timeToMinutes(l.startTime) + l.durationMins)}
+                      </span>
+                      <span className="text-xs font-bold text-slate-700">• {l.pupilName}</span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          l.status === 'confirmed'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
+                        {l.status.toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-600">
+                      <strong>Pick-up:</strong> {l.pickupLocation}
+                      {l.dropoffLocation && l.dropoffLocation !== l.pickupLocation && (
+                        <>
+                          {' '}
+                          • <strong>Drop-off:</strong> {l.dropoffLocation}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isInstructor && l.status === 'pending' && (
+                      <>
+                        <button
+                          onClick={() => onApprove(l)}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => onReject(l)}
+                          className="px-3 py-1.5 rounded-lg bg-slate-200 text-slate-800 text-xs font-bold"
+                        >
+                          Decline
+                        </button>
+                      </>
+                    )}
+                    <button
+                      onClick={() => onCancel(l)}
+                      className="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 text-xs font-bold"
+                    >
+                      Cancel
+                    </button>
                   </div>
                 </div>
               ))}
@@ -3176,72 +2525,784 @@ function GoogleStyleDiaryView({
 }
 
 // ============================================================================
-// SUB-COMPONENT: PUPIL CALENDAR INTEGRATION CARD (IN SETTINGS TAB)
+// DVSA SYLLABUS PROGRESSION FLOWCHART (PUPILS / PROGRESS TAB)
 // ============================================================================
-function PupilCalendarIntegrationCard({ pupil, lessons, notify }) {
-  const myConfirmedLessons = useMemo(
-    () => lessons.filter((l) => l.pupilId === pupil.id && l.status === 'confirmed'),
-    [lessons, pupil.id]
+function SyllabusFlowchartView({
+  currentUser,
+  isInstructor,
+  pupils,
+  syllabusProgress,
+  onToggleTopicStatus
+}) {
+  const [selectedPupilId, setSelectedPupilId] = useState(
+    isInstructor ? pupils[0]?.id || '' : currentUser.id
   );
 
+  useEffect(() => {
+    if (isInstructor && !selectedPupilId && pupils.length > 0) {
+      setSelectedPupilId(pupils[0].id);
+    }
+  }, [isInstructor, pupils, selectedPupilId]);
+
+  const targetPupilId = isInstructor ? selectedPupilId : currentUser.id;
+  const progressMap = syllabusProgress[targetPupilId] || {};
+
+  const statusOrder = ['not_started', 'practising', 'independent'];
+  const statusMeta = {
+    not_started: {
+      label: 'Not Started',
+      badge: 'bg-slate-100 text-slate-600 border-slate-200'
+    },
+    practising: {
+      label: 'Practising (Prompted)',
+      badge: 'bg-amber-100 text-amber-800 border-amber-300'
+    },
+    independent: {
+      label: 'Test Standard (Independent)',
+      badge: 'bg-emerald-100 text-emerald-800 border-emerald-300'
+    }
+  };
+
+  const completedCount = DVSA_SYLLABUS_TOPICS.filter(
+    (t) => progressMap[t.id] === 'independent'
+  ).length;
+  const pct = Math.round((completedCount / DVSA_SYLLABUS_TOPICS.length) * 100);
+
   return (
-    <div className="bg-zinc-900 text-white rounded-2xl p-5 sm:p-6 shadow-md border border-zinc-800 space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <CalendarPlus className="w-5 h-5 text-emerald-400" />
-          <h3 className="text-base font-extrabold">Calendar Integration &amp; Phone Sync</h3>
+    <div className="space-y-6">
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-black text-slate-900">
+            {isInstructor ? 'Pupil DVSA Syllabus Progress' : 'My DVSA Driving Syllabus Plan'}
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Track progression from first cockpit drill through to Chichester test readiness.
+          </p>
         </div>
-        <span className="text-[10px] uppercase tracking-wider font-bold bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full">
-          iOS • Google • Outlook
-        </span>
+
+        {isInstructor && (
+          <div className="min-w-[220px]">
+            <label className="block text-[11px] font-bold text-slate-500 mb-1">
+              Select Pupil
+            </label>
+            <select
+              value={selectedPupilId}
+              onChange={(e) => setSelectedPupilId(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-slate-900 text-xs font-bold"
+            >
+              {pupils.length === 0 && <option value="">No pupils registered yet</option>}
+              {pupils.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
-      <p className="text-xs text-zinc-300 leading-relaxed">
-        Export all your confirmed driving lessons—including pick-up locations and instructor focus notes—directly into Apple Calendar, Google Calendar, or Outlook on your phone:
-      </p>
+      {targetPupilId ? (
+        <>
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-700 mb-2">
+              <span>Test Readiness Mastery</span>
+              <span>
+                {completedCount} / {DVSA_SYLLABUS_TOPICS.length} Topics ({pct}%)
+              </span>
+            </div>
+            <div className="w-full h-3 rounded-full bg-slate-100 overflow-hidden">
+              <div
+                className="h-full bg-emerald-500 transition-all duration-300"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          </div>
 
-      <div className="space-y-2.5">
-        <button
-          type="button"
-          disabled={myConfirmedLessons.length === 0}
-          onClick={() => {
-            const ics = buildLessonICSContent(myConfirmedLessons, pupil.name);
-            downloadICSFile(`LearnToPassWithUs-AllLessons-${pupil.name.replace(/\s+/g, '')}.ics`, ics);
-            notify(
-              'Calendar File Downloaded',
-              'Tap the downloaded .ics file to add all confirmed lessons to Apple Calendar, Outlook, or Google Calendar.'
-            );
-          }}
-          className="w-full sm:w-auto py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-xs font-extrabold text-white inline-flex items-center justify-center gap-2 shadow-sm transition cursor-pointer"
-        >
-          <Download className="w-4 h-4" />
-          {myConfirmedLessons.length > 0
-            ? `Download All ${myConfirmedLessons.length} Confirmed Lesson(s) (.ics)`
-            : 'No Confirmed Lessons to Export Yet'}
-        </button>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {DVSA_SYLLABUS_TOPICS.map((topic, index) => {
+              const currentStatus = progressMap[topic.id] || 'not_started';
+              const meta = statusMeta[currentStatus];
+              const nextStatus =
+                statusOrder[(statusOrder.indexOf(currentStatus) + 1) % statusOrder.length];
 
-        {myConfirmedLessons.length > 0 && (
-          <div className="pt-3 border-t border-zinc-800 space-y-2">
-            <span className="block text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">
-              Or 1-Tap Add Individual Lessons to Google Calendar:
-            </span>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {myConfirmedLessons.map((l) => (
-                <a
-                  key={l.id}
-                  href={buildGoogleCalendarUrl(l)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-xs font-semibold text-zinc-200 transition"
+              return (
+                <div
+                  key={topic.id}
+                  className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex flex-col justify-between gap-3"
                 >
-                  <span>
-                    {formatReadableDate(l.date)} • {l.startTime} ({l.durationMins / 60}h)
-                  </span>
-                  <span className="inline-flex items-center gap-1 text-emerald-400 font-bold text-[11px]">
-                    + Google Cal <ExternalLink className="w-3 h-3" />
-                  </span>
-                </a>
-              ))}
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-bold text-emerald-700 uppercase">
+                        Step {index + 1} • {topic.stage}
+                      </span>
+                      <span
+                        className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${meta.badge}`}
+                      >
+                        {meta.label}
+                      </span>
+                    </div>
+                    <h3 className="text-sm font-extrabold text-slate-900 mt-1.5">{topic.title}</h3>
+                    <p className="text-xs text-slate-600 mt-1">{topic.desc}</p>
+                  </div>
+
+                  {isInstructor && (
+                    <button
+                      onClick={() => onToggleTopicStatus(targetPupilId, topic.id, nextStatus)}
+                      className="self-start px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition"
+                    >
+                      Advance Status → {statusMeta[nextStatus].label}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      ) : (
+        <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-sm text-slate-500">
+          No pupils registered yet. Once a pupil signs up, their DVSA syllabus tracker will appear
+          here.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// DIRECT MESSAGING CENTER (MESSAGES TAB)
+// ============================================================================
+function MessagingCenterView({ currentUser, isInstructor, accounts, messages, onSendMessage }) {
+  const [selectedContactId, setSelectedContactId] = useState('');
+  const [draft, setDraft] = useState('');
+
+  const contacts = useMemo(() => {
+    if (isInstructor) {
+      return accounts.filter((a) => a.role === 'pupil');
+    }
+    return accounts.filter((a) => a.role === 'instructor');
+  }, [accounts, isInstructor]);
+
+  useEffect(() => {
+    if (!selectedContactId && contacts.length > 0) {
+      setSelectedContactId(contacts[0].id);
+    }
+  }, [contacts, selectedContactId]);
+
+  const activeContact = contacts.find((c) => c.id === selectedContactId) || contacts[0];
+
+  const threadMessages = useMemo(() => {
+    if (!activeContact) return [];
+    return messages.filter(
+      (m) =>
+        (m.fromId === currentUser.id && m.toId === activeContact.id) ||
+        (m.toId === currentUser.id &&
+          (m.fromId === activeContact.id ||
+            (!isInstructor && m.senderRole === 'instructor')))
+    );
+  }, [messages, currentUser.id, activeContact, isInstructor]);
+
+  const handleSend = (e) => {
+    e.preventDefault();
+    if (!draft.trim() || !activeContact) return;
+    onSendMessage(activeContact.id, activeContact.name, draft.trim());
+    setDraft('');
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden grid grid-cols-1 md:grid-cols-12 min-h-[460px]">
+      <div className="md:col-span-4 border-b md:border-b-0 md:border-r border-slate-200 p-4 bg-slate-50/70 space-y-2">
+        <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-500 px-2">
+          {isInstructor ? 'Pupils' : 'Instructor'}
+        </h3>
+        {contacts.length === 0 ? (
+          <p className="text-xs text-slate-500 px-2 py-4">No contacts available yet.</p>
+        ) : (
+          contacts.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => setSelectedContactId(c.id)}
+              className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-between ${
+                activeContact?.id === c.id
+                  ? 'bg-slate-900 text-white'
+                  : 'text-slate-700 hover:bg-slate-200/70'
+              }`}
+            >
+              <span className="truncate">{c.name}</span>
+              <span className="text-[10px] opacity-75">
+                {c.postcode ? c.postcode.split('-')[0].trim() : ''}
+              </span>
+            </button>
+          ))
+        )}
+      </div>
+
+      <div className="md:col-span-8 flex flex-col justify-between p-4 sm:p-5">
+        {activeContact ? (
+          <>
+            <div className="pb-3 border-b border-slate-200">
+              <div className="text-sm font-extrabold text-slate-900">{activeContact.name}</div>
+              <div className="text-xs text-slate-500">{activeContact.email}</div>
+            </div>
+
+            <div className="flex-1 py-4 space-y-3 overflow-y-auto max-h-[320px]">
+              {threadMessages.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-8">
+                  No messages yet. Start a conversation below.
+                </p>
+              ) : (
+                threadMessages.map((m) => {
+                  const isMine = m.fromId === currentUser.id;
+                  return (
+                    <div
+                      key={m.id}
+                      className={`flex flex-col max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs ${
+                        isMine
+                          ? 'ml-auto bg-emerald-600 text-white'
+                          : 'mr-auto bg-slate-100 text-slate-800'
+                      }`}
+                    >
+                      <span className="font-bold text-[10px] opacity-80 mb-0.5">{m.fromName}</span>
+                      <span>{m.text}</span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <form onSubmit={handleSend} className="pt-3 border-t border-slate-200 flex gap-2">
+              <input
+                type="text"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder={`Message ${activeContact.name}...`}
+                className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-xs"
+              />
+              <button
+                type="submit"
+                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold"
+              >
+                Send
+              </button>
+            </form>
+          </>
+        ) : (
+          <div className="flex items-center justify-center h-full text-xs text-slate-400">
+            Select a contact to view messages.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// INSTRUCTOR SETTINGS: WORKING HOURS, WORK ROTA SYNC, HOLIDAYS & EMAILJS
+// ============================================================================
+function CalendarSyncAndUnavailabilityView({
+  settings,
+  setSettings,
+  onPersistSettings,
+  rotaEvents,
+  onSyncRotaEvents,
+  unavailability,
+  setUnavailability,
+  onAddCloudUnavail,
+  onDeleteCloudUnavail,
+  notify
+}) {
+  const [unavailFrom, setUnavailFrom] = useState(getTodayISO());
+  const [unavailTo, setUnavailTo] = useState(getTodayISO());
+  const [unavailAllDay, setUnavailAllDay] = useState(true);
+  const [unavailStart, setUnavailStart] = useState('09:00');
+  const [unavailEnd, setUnavailEnd] = useState('17:00');
+  const [unavailReason, setUnavailReason] = useState('Holiday / Personal Appointment');
+  const [syncingRota, setSyncingRota] = useState(false);
+  const [pastedICS, setPastedICS] = useState('');
+  const [showPasteBox, setShowPasteBox] = useState(false);
+
+  const toggleWorkDay = (dayIdx) => {
+    const current = settings.workDays || [1, 2, 3, 4, 5, 6];
+    const next = current.includes(dayIdx)
+      ? current.filter((d) => d !== dayIdx)
+      : [...current, dayIdx].sort();
+    setSettings((prev) => ({ ...prev, workDays: next }));
+  };
+
+  const handleSaveRules = (e) => {
+    e.preventDefault();
+    onPersistSettings(settings);
+    notify('Instructor working hours, calendar sync & reminder settings saved!');
+  };
+
+  const handleSyncRotaNow = async () => {
+    const rawUrl = (settings.workRotaUrl || '').trim();
+    if (!rawUrl) {
+      notify('Please paste your Connecteam or work rota .ics URL first.', 'error');
+      return;
+    }
+    const httpUrl = rawUrl.replace(/^webcal:\/\//i, 'https://');
+    setSyncingRota(true);
+
+    const proxies = [
+      (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+      (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+      (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+      (u) => u
+    ];
+
+    let fetchedText = '';
+    for (const makeProxy of proxies) {
+      try {
+        const res = await fetch(makeProxy(httpUrl));
+        if (res.ok) {
+          const txt = await res.text();
+          if (txt && txt.includes('BEGIN:VCALENDAR')) {
+            fetchedText = txt;
+            break;
+          }
+        }
+      } catch {
+        // Try next proxy
+      }
+    }
+
+    setSyncingRota(false);
+
+    if (!fetchedText) {
+      notify(
+        'Could not fetch automatically due to S3/CORS restrictions. Use "Upload .ics File" or "Paste .ics Text" below.',
+        'error'
+      );
+      return;
+    }
+
+    const parsed = parseICSFeedEvents(fetchedText);
+    const updatedSettings = {
+      ...settings,
+      lastRotaSync: new Date().toLocaleString('en-GB')
+    };
+    onSyncRotaEvents(parsed, updatedSettings);
+    notify(`Synced ${parsed.length} shift blocks from your work rota (+1hr buffer applied)!`);
+  };
+
+  const handleICSFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = String(ev.target?.result || '');
+      const parsed = parseICSFeedEvents(text);
+      if (parsed.length === 0) {
+        notify('No valid calendar shifts found in that .ics file.', 'error');
+        return;
+      }
+      const updatedSettings = {
+        ...settings,
+        lastRotaSync: new Date().toLocaleString('en-GB')
+      };
+      onSyncRotaEvents(parsed, updatedSettings);
+      notify(`Imported ${parsed.length} work rota shift blocks (+1hr buffer applied)!`);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleImportPastedICS = () => {
+    const parsed = parseICSFeedEvents(pastedICS);
+    if (parsed.length === 0) {
+      notify('No valid VEVENT shifts detected in pasted text.', 'error');
+      return;
+    }
+    const updatedSettings = {
+      ...settings,
+      lastRotaSync: new Date().toLocaleString('en-GB')
+    };
+    onSyncRotaEvents(parsed, updatedSettings);
+    setPastedICS('');
+    setShowPasteBox(false);
+    notify(`Imported ${parsed.length} work rota shift blocks!`);
+  };
+
+  const handleAddHolidayRange = (e) => {
+    e.preventDefault();
+    if (!unavailFrom) return;
+    const endDate = unavailTo && unavailTo >= unavailFrom ? unavailTo : unavailFrom;
+
+    let cursor = unavailFrom;
+    let count = 0;
+    const newBlocks = [];
+
+    while (cursor <= endDate && count < 90) {
+      const block = {
+        id: `unavail-${cursor}-${Date.now()}-${count}`,
+        date: cursor,
+        allDay: unavailAllDay,
+        startTime: unavailAllDay ? '00:00' : unavailStart,
+        endTime: unavailAllDay ? '23:59' : unavailEnd,
+        reason: unavailReason.trim() || 'Unavailable'
+      };
+      newBlocks.push(block);
+      onAddCloudUnavail(block);
+      cursor = addDaysISO(cursor, 1);
+      count++;
+    }
+
+    setUnavailability((prev) => [...prev, ...newBlocks]);
+    notify(
+      count > 1
+        ? `Blocked ${count} days (${formatFriendlyDate(unavailFrom)} to ${formatFriendlyDate(
+            endDate
+          )}).`
+        : `Blocked ${formatFriendlyDate(unavailFrom)}.`
+    );
+  };
+
+  return (
+    <div className="space-y-6">
+      <form
+        onSubmit={handleSaveRules}
+        className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-5"
+      >
+        <div>
+          <h2 className="text-lg font-black text-slate-900">
+            Driving Instructor Hours, Work Rota &amp; Reminder Settings
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Set your driving lesson window (07:00–18:00), sync your Connecteam work rota (+1hr
+            pre/post buffer), and configure automatic 24-hour reminders.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              First Lesson Start Time
+            </label>
+            <input
+              type="time"
+              value={settings.workStart}
+              onChange={(e) => setSettings((prev) => ({ ...prev, workStart: e.target.value }))}
+              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm font-bold"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Last Lesson Start Time
+            </label>
+            <input
+              type="time"
+              value={settings.workEnd}
+              onChange={(e) => setSettings((prev) => ({ ...prev, workEnd: e.target.value }))}
+              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm font-bold"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-bold text-slate-700 mb-2">
+            Available Teaching Days
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { idx: 1, label: 'Mon' },
+              { idx: 2, label: 'Tue' },
+              { idx: 3, label: 'Wed' },
+              { idx: 4, label: 'Thu' },
+              { idx: 5, label: 'Fri' },
+              { idx: 6, label: 'Sat' },
+              { idx: 0, label: 'Sun' }
+            ].map((d) => {
+              const active = (settings.workDays || []).includes(d.idx);
+              return (
+                <button
+                  type="button"
+                  key={d.idx}
+                  onClick={() => toggleWorkDay(d.idx)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition ${
+                    active
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-white text-slate-600 border-slate-300'
+                  }`}
+                >
+                  {d.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900">
+                Work Rota / External Calendar (.ics Feed)
+              </h3>
+              <p className="text-xs text-slate-500">
+                Every event in your rota blocks out that shift plus 1 hour before and 1 hour after—even
+                if marked &ldquo;Free&rdquo; in Google Calendar.
+              </p>
+            </div>
+            {settings.lastRotaSync && (
+              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+                Synced: {settings.lastRotaSync} ({rotaEvents.length} shifts)
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="url"
+              value={settings.workRotaUrl || ''}
+              onChange={(e) => setSettings((prev) => ({ ...prev, workRotaUrl: e.target.value }))}
+              placeholder="Paste Connecteam / work rota .ics URL here..."
+              className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-xs"
+            />
+            <button
+              type="button"
+              onClick={handleSyncRotaNow}
+              disabled={syncingRota}
+              className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shrink-0"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${syncingRota ? 'animate-spin' : ''}`} />
+              <span>{syncingRota ? 'Syncing...' : 'Sync Rota Now'}</span>
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 pt-1 text-xs">
+            <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-100 font-bold text-slate-700 cursor-pointer">
+              <Download className="w-3.5 h-3.5" />
+              <span>Upload Downloaded .ics File</span>
+              <input
+                type="file"
+                accept=".ics,text/calendar"
+                onChange={handleICSFileUpload}
+                className="hidden"
+              />
+            </label>
+
+            <button
+              type="button"
+              onClick={() => setShowPasteBox((prev) => !prev)}
+              className="px-3 py-1.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-100 font-bold text-slate-700"
+            >
+              {showPasteBox ? 'Hide Paste Box' : 'Paste .ics Text'}
+            </button>
+          </div>
+
+          {showPasteBox && (
+            <div className="space-y-2 pt-2">
+              <textarea
+                rows={4}
+                value={pastedICS}
+                onChange={(e) => setPastedICS(e.target.value)}
+                placeholder="Paste raw BEGIN:VCALENDAR ... END:VCALENDAR text here..."
+                className="w-full p-3 rounded-xl border border-slate-300 bg-white text-xs font-mono"
+              />
+              <button
+                type="button"
+                onClick={handleImportPastedICS}
+                className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold"
+              >
+                Import Pasted Shifts
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900">
+                Automatic 24-Hour Pupil Reminders (In-App + Free EmailJS)
+              </h3>
+              <p className="text-xs text-slate-500">
+                Automatically sends an in-app prompt 24 hours before confirmed lessons, plus an
+                email if your free EmailJS keys are entered below.
+              </p>
+            </div>
+            <input
+              type="checkbox"
+              checked={!!settings.autoRemindersEnabled}
+              onChange={(e) =>
+                setSettings((prev) => ({ ...prev, autoRemindersEnabled: e.target.checked }))
+              }
+              className="w-4 h-4 accent-emerald-600"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                EmailJS Service ID
+              </label>
+              <input
+                type="text"
+                value={settings.emailJsServiceId || ''}
+                onChange={(e) =>
+                  setSettings((prev) => ({ ...prev, emailJsServiceId: e.target.value }))
+                }
+                placeholder="service_xxxxxxx"
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-mono"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                EmailJS Template ID
+              </label>
+              <input
+                type="text"
+                value={settings.emailJsTemplateId || ''}
+                onChange={(e) =>
+                  setSettings((prev) => ({ ...prev, emailJsTemplateId: e.target.value }))
+                }
+                placeholder="template_xxxxxxx"
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-mono"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                EmailJS Public Key
+              </label>
+              <input
+                type="text"
+                value={settings.emailJsPublicKey || ''}
+                onChange={(e) =>
+                  setSettings((prev) => ({ ...prev, emailJsPublicKey: e.target.value }))
+                }
+                placeholder="Your Public Key"
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-mono"
+              />
+            </div>
+          </div>
+        </div>
+
+        <button
+          type="submit"
+          className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition"
+        >
+          Save Working Hours &amp; Google Calendar Rules
+        </button>
+      </form>
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-4">
+        <div>
+          <h3 className="text-base font-extrabold text-slate-900">
+            Holiday &amp; Appointment Unavailability (From / To Date Range)
+          </h3>
+          <p className="text-xs text-slate-500">
+            Block out a single date or a multi-day holiday range so pupils cannot book during those
+            times.
+          </p>
+        </div>
+
+        <form onSubmit={handleAddHolidayRange} className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">From Date</label>
+              <input
+                type="date"
+                required
+                value={unavailFrom}
+                onChange={(e) => {
+                  setUnavailFrom(e.target.value);
+                  if (unavailTo < e.target.value) setUnavailTo(e.target.value);
+                }}
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">To Date</label>
+              <input
+                type="date"
+                required
+                min={unavailFrom}
+                value={unavailTo}
+                onChange={(e) => setUnavailTo(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Reason</label>
+              <input
+                type="text"
+                value={unavailReason}
+                onChange={(e) => setUnavailReason(e.target.value)}
+                placeholder="Holiday / MOT / Appointment"
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-4">
+            <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-700">
+              <input
+                type="checkbox"
+                checked={unavailAllDay}
+                onChange={(e) => setUnavailAllDay(e.target.checked)}
+                className="w-4 h-4 accent-emerald-600"
+              />
+              <span>Block Entire Day(s)</span>
+            </label>
+
+            {!unavailAllDay && (
+              <div className="flex items-center gap-2 text-xs">
+                <input
+                  type="time"
+                  value={unavailStart}
+                  onChange={(e) => setUnavailStart(e.target.value)}
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white font-bold"
+                />
+                <span>to</span>
+                <input
+                  type="time"
+                  value={unavailEnd}
+                  onChange={(e) => setUnavailEnd(e.target.value)}
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white font-bold"
+                />
+              </div>
+            )}
+
+            <button
+              type="submit"
+              className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold"
+            >
+              Add Unavailability Block
+            </button>
+          </div>
+        </form>
+
+        {unavailability.length > 0 && (
+          <div className="pt-3 border-t border-slate-100 space-y-2">
+            <div className="text-xs font-extrabold text-slate-700">
+              Active Blocked Dates ({unavailability.length})
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {unavailability
+                .slice()
+                .sort((a, b) => a.date.localeCompare(b.date))
+                .map((u) => (
+                  <div
+                    key={u.id}
+                    className="px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs"
+                  >
+                    <div>
+                      <span className="font-bold text-slate-900">
+                        {formatFriendlyDate(u.date)}
+                      </span>{' '}
+                      <span className="text-slate-500">
+                        • {u.allDay ? 'All Day' : `${u.startTime}–${u.endTime}`} ({u.reason})
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setUnavailability((prev) => prev.filter((item) => item.id !== u.id));
+                        onDeleteCloudUnavail(u.id);
+                      }}
+                      className="text-rose-600 hover:text-rose-800 font-bold ml-2"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
             </div>
           </div>
         )}
@@ -3251,683 +3312,258 @@ function PupilCalendarIntegrationCard({ pupil, lessons, notify }) {
 }
 
 // ============================================================================
-// SUB-COMPONENT: UNAVAILABILITY & DUAL GOOGLE CALENDAR SYNC
+// PUPIL SETTINGS: FULL HOME ADDRESS & SAVED PICK-UP / DROP-OFF LOCATIONS
 // ============================================================================
-function CalendarSyncAndUnavailabilityView({
-  settings,
-  setSettings,
-  onPersistSettings,
-  rotaEvents = [],
-  onSyncRotaEvents,
-  unavailability,
-  setUnavailability,
-  onAddCloudUnavail,
-  onDeleteCloudUnavail,
-  onOpenGoogleGuide,
-  notify
-}) {
-  const [title, setTitle] = useState('');
-  const [dateFrom, setDateFrom] = useState(getUpcomingDateStr(2));
-  const [dateTo, setDateTo] = useState(getUpcomingDateStr(2));
-  const [allDay, setAllDay] = useState(true);
-  const [startTime, setStartTime] = useState('09:00');
-  const [endTime, setEndTime] = useState('13:00');
+function PupilLocationsSettingsCard({ pupil, onSaveLocations, notify }) {
+  const [homeAddress, setHomeAddress] = useState(pupil.homeAddress || '');
+  const [postcode, setPostcode] = useState(pupil.postcode || WEST_SUSSEX_POSTCODES[0]);
+  const [savedLocations, setSavedLocations] = useState(pupil.savedLocations || []);
+  const [newLabel, setNewLabel] = useState('');
+  const [newAddress, setNewAddress] = useState('');
+  const [newPostcode, setNewPostcode] = useState(pupil.postcode || WEST_SUSSEX_POSTCODES[0]);
 
-  const [workStart, setWorkStart] = useState(settings.workStart || '07:00');
-  const [workEnd, setWorkEnd] = useState(settings.workEnd || '18:00');
-  const [auto24HrReminderEnabled, setAuto24HrReminderEnabled] = useState(
-    settings.auto24HrReminderEnabled !== false
-  );
-  const [emailJsServiceId, setEmailJsServiceId] = useState(settings.emailJsServiceId || '');
-  const [emailJsTemplateId, setEmailJsTemplateId] = useState(settings.emailJsTemplateId || '');
-  const [emailJsPublicKey, setEmailJsPublicKey] = useState(settings.emailJsPublicKey || '');
-  const [icalUrl, setIcalUrl] = useState(settings.secondaryIcalUrl || '');
-  const [shiftEnabled, setShiftEnabled] = useState(Boolean(settings.secondaryShiftEnabled));
-  const [shiftStart, setShiftStart] = useState(settings.secondaryShiftStart || '06:00');
-  const [shiftEnd, setShiftEnd] = useState(settings.secondaryShiftEnd || '17:00');
-  const [shiftDays, setShiftDays] = useState(settings.secondaryShiftDays || []);
-  const [isSyncingRota, setIsSyncingRota] = useState(false);
-  const [showManualIcsPaste, setShowManualIcsPaste] = useState(false);
-  const [manualIcsText, setManualIcsText] = useState('');
-  const icsFileRef = useRef(null);
-
-  const applyParsedRotaEvents = (icsContent, sourceUrl = icalUrl) => {
-    if (!icsContent || !icsContent.includes('BEGIN:VCALENDAR')) {
-      throw new Error('Invalid calendar data — expected an .ics file containing VCALENDAR events.');
-    }
-    const parsedEvents = parseICSFeedEvents(icsContent);
-    const updatedSettings = {
-      ...settings,
-      workStart,
-      workEnd,
-      auto24HrReminderEnabled,
-      emailJsServiceId,
-      emailJsTemplateId,
-      emailJsPublicKey,
-      secondaryIcalUrl: sourceUrl,
-      secondaryShiftEnabled: true,
-      secondaryShiftStart: shiftStart,
-      secondaryShiftEnd: shiftEnd,
-      secondaryShiftDays: shiftDays,
-      lastRotaSyncAt: new Date().toISOString(),
-      syncedRotaCount: parsedEvents.length
-    };
-
-    setShiftEnabled(true);
-    onSyncRotaEvents?.(parsedEvents, updatedSettings);
-    notify(
-      `Synced ${parsedEvents.length} Rota Shift(s)!`,
-      'All events from your work rota now block pupil bookings—even if marked "Free" in Google Calendar.'
-    );
-  };
-
-  const handleSyncWorkRotaFeed = async (targetUrl = icalUrl) => {
-    const cleanUrl = (targetUrl || '').trim();
-    if (!cleanUrl) {
-      notify('Paste Your Work Rota Link First', 'Enter your .ics or webcal:// work rota feed URL above.', 'error');
-      return;
-    }
-
-    const httpUrl = cleanUrl.replace(/^webcal:\/\//i, 'https://');
-    setIsSyncingRota(true);
-
-    try {
-      let icsContent = '';
-      const candidateFetchUrls = [
-        httpUrl,
-        `https://api.allorigins.win/get?url=${encodeURIComponent(httpUrl)}`,
-        `https://corsproxy.io/?url=${encodeURIComponent(httpUrl)}`,
-        `https://corsproxy.io/?${encodeURIComponent(httpUrl)}`,
-        `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(httpUrl)}`,
-        `https://thingproxy.freeboard.io/fetch/${httpUrl}`
-      ];
-
-      for (const fetchUrl of candidateFetchUrls) {
-        try {
-          const res = await fetch(fetchUrl);
-          if (res.ok) {
-            const rawText = await res.text();
-            let text = rawText;
-            if (fetchUrl.includes('allorigins.win/get')) {
-              try {
-                const parsedJson = JSON.parse(rawText);
-                text = parsedJson.contents || '';
-              } catch (_) {}
-            }
-            if (text && text.includes('BEGIN:VCALENDAR')) {
-              icsContent = text;
-              break;
-            }
-          }
-        } catch (_) {
-          // Try next proxy relay
-        }
-      }
-
-      if (!icsContent) {
-        setShowManualIcsPaste(true);
-        throw new Error(
-          'Amazon S3 blocked direct browser fetch. Click "Open Link to Download .ics" below, then upload that downloaded file!'
-        );
-      }
-
-      applyParsedRotaEvents(icsContent, cleanUrl);
-    } catch (err) {
-      notify(
-        'Direct Link Fetch Blocked by S3',
-        err.message || 'Use the Download & Upload .ics buttons right below the URL box.',
-        'error'
-      );
-    } finally {
-      setIsSyncingRota(false);
-    }
-  };
-
-  const handleIcsFileUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        applyParsedRotaEvents(String(reader.result || ''), icalUrl);
-      } catch (err) {
-        notify('Could Not Read .ics File', err.message, 'error');
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
-  };
-
-  const handleSaveSettings = (e) => {
+  const handleSaveHome = (e) => {
     e.preventDefault();
-    const updated = {
-      ...settings,
-      workStart,
-      workEnd,
-      auto24HrReminderEnabled,
-      emailJsServiceId: emailJsServiceId.trim(),
-      emailJsTemplateId: emailJsTemplateId.trim(),
-      emailJsPublicKey: emailJsPublicKey.trim(),
-      secondaryIcalUrl: icalUrl,
-      secondaryShiftEnabled: shiftEnabled,
-      secondaryShiftStart: shiftStart,
-      secondaryShiftEnd: shiftEnd,
-      secondaryShiftDays: shiftDays
-    };
-    setSettings(updated);
-    onPersistSettings?.(updated);
-    notify('Schedule & Reminder Settings Saved', 'Working hours, calendar sync, and 24-hour reminders updated.');
+    onSaveLocations({
+      homeAddress: homeAddress.trim(),
+      postcode,
+      savedLocations
+    });
+    notify('Home address & saved locations updated!');
   };
 
-  const handleAddUnavailability = (e) => {
+  const handleAddLocation = (e) => {
     e.preventDefault();
-    const startStr = dateFrom || getUpcomingDateStr(2);
-    const endStr = dateTo && dateTo >= startStr ? dateTo : startStr;
+    if (!newLabel.trim() || !newAddress.trim()) return;
+    const nextList = [
+      ...savedLocations,
+      {
+        id: `loc-${Date.now()}`,
+        label: newLabel.trim(),
+        address: newAddress.trim(),
+        postcode: newPostcode
+      }
+    ];
+    setSavedLocations(nextList);
+    onSaveLocations({
+      homeAddress: homeAddress.trim(),
+      postcode,
+      savedLocations: nextList
+    });
+    setNewLabel('');
+    setNewAddress('');
+    notify(`Saved "${newLabel.trim()}" to your pick-up/drop-off dropdown!`);
+  };
 
-    const [sy, sm, sd] = startStr.split('-').map(Number);
-    const [ey, em, ed] = endStr.split('-').map(Number);
-    const cursor = new Date(sy, sm - 1, sd);
-    const endDt = new Date(ey, em - 1, ed);
-
-    const newBlocks = [];
-    let safetyDays = 0;
-
-    while (cursor <= endDt && safetyDays < 90) {
-      const y = cursor.getFullYear();
-      const m = String(cursor.getMonth() + 1).padStart(2, '0');
-      const d = String(cursor.getDate()).padStart(2, '0');
-      const dayStr = `${y}-${m}-${d}`;
-
-      const block = {
-        id: `unavail-${dayStr}-${Date.now()}-${safetyDays}`,
-        title: title.trim() || (allDay ? 'Holiday / Day Off' : 'Personal Appointment'),
-        date: dayStr,
-        allDay,
-        startTime: allDay ? '00:00' : startTime,
-        endTime: allDay ? '23:59' : endTime,
-        source: 'manual'
-      };
-      newBlocks.push(block);
-      onAddCloudUnavail?.(block);
-
-      cursor.setDate(cursor.getDate() + 1);
-      safetyDays++;
-    }
-
-    setUnavailability((prev) => [...prev, ...newBlocks]);
-    setTitle('');
-    notify(
-      newBlocks.length > 1
-        ? `${newBlocks.length} Days Blocked Out`
-        : 'Unavailability Added',
-      newBlocks.length > 1
-        ? `Blocked ${formatReadableDate(startStr)} to ${formatReadableDate(endStr)} from pupil bookings.`
-        : 'Those hours are now blocked from pupil bookings.'
-    );
+  const handleRemoveLocation = (locId) => {
+    const nextList = savedLocations.filter((l) => l.id !== locId);
+    setSavedLocations(nextList);
+    onSaveLocations({
+      homeAddress: homeAddress.trim(),
+      postcode,
+      savedLocations: nextList
+    });
+    notify('Saved location removed.', 'info');
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-5">
-        <div>
-          <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-            <Ban className="w-5 h-5 text-red-600" />
-            Holiday &amp; Appointment Unavailability
-          </h3>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Block full days off or specific hours (e.g., 10:00–12:30 appointment) so pupils cannot book during them.
-          </p>
-        </div>
-
-        <form onSubmit={handleAddUnavailability} className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Reason / Label</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g., Summer Holiday, MOT for EN56 WXA, Dentist"
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">From Date</label>
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => {
-                  setDateFrom(e.target.value);
-                  if (!dateTo || e.target.value > dateTo) {
-                    setDateTo(e.target.value);
-                  }
-                }}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">To Date</label>
-              <input
-                type="date"
-                value={dateTo}
-                min={dateFrom}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="inline-flex items-center gap-2 cursor-pointer text-sm font-bold text-slate-800">
-              <input
-                type="checkbox"
-                checked={allDay}
-                onChange={(e) => setAllDay(e.target.checked)}
-                className="w-4 h-4 rounded text-emerald-600"
-              />
-              All Day Unavailable
-            </label>
-          </div>
-
-          {!allDay && (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Start Time</label>
-                <input
-                  type="time"
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">End Time</label>
-                <input
-                  type="time"
-                  value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900"
-                />
-              </div>
-            </div>
-          )}
-
-          <button
-            type="submit"
-            className="w-full py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs sm:text-sm font-bold"
-          >
-            Block Out Time
-          </button>
-        </form>
-
-        <div className="space-y-2">
-          <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
-            Active Blocked Periods ({unavailability.length})
-          </h4>
-          {unavailability.map((u) => (
-            <div
-              key={u.id}
-              className="flex items-center justify-between p-3 rounded-xl border border-slate-200 bg-white text-xs"
-            >
-              <div>
-                <span className="font-extrabold text-slate-900">{u.title}</span>
-                <span className="block text-slate-500 mt-0.5">
-                  {formatReadableDate(u.date)} •{' '}
-                  {u.allDay ? 'All Day' : `${u.startTime} – ${u.endTime}`}
-                </span>
-              </div>
-              <button
-                onClick={() => {
-                  setUnavailability((prev) => prev.filter((item) => item.id !== u.id));
-                  onDeleteCloudUnavail?.(u.id);
-                  notify('Block Removed', 'Time window reopened for bookings.', 'info');
-                }}
-                className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg"
-                title="Remove Block"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
-          ))}
-        </div>
+    <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-5">
+      <div>
+        <h2 className="text-lg font-black text-slate-900">
+          Home Address &amp; Saved Pick-Up / Drop-Off Locations
+        </h2>
+        <p className="text-xs text-slate-500 mt-0.5">
+          Add your full home street address and save any alternative pick-up or drop-off points
+          (e.g. College, Workplace, Parent&apos;s House) so you can select them from a dropdown when
+          booking a lesson.
+        </p>
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-5">
-        <div className="flex items-start justify-between gap-2">
+      <form onSubmit={handleSaveHome} className="space-y-3 pb-4 border-b border-slate-200">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-              <RefreshCw className="w-5 h-5 text-emerald-600" />
-              Dual Google Calendar &amp; Working Hours
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Sync your primary driving calendar + read busy shifts from your other Google account or work rota.
-            </p>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Home Postcode Area
+            </label>
+            <select
+              value={postcode}
+              onChange={(e) => setPostcode(e.target.value)}
+              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-xs font-semibold"
+            >
+              {WEST_SUSSEX_POSTCODES.map((pc) => (
+                <option key={pc} value={pc}>
+                  {pc}
+                </option>
+              ))}
+            </select>
           </div>
-          <button
-            type="button"
-            onClick={onOpenGoogleGuide}
-            className="px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold hover:bg-emerald-100 flex items-center gap-1 flex-shrink-0"
-          >
-            <Info className="w-3.5 h-3.5" /> Setup Guide
-          </button>
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Full Home Street Address &amp; Postcode
+            </label>
+            <input
+              type="text"
+              value={homeAddress}
+              onChange={(e) => setHomeAddress(e.target.value)}
+              placeholder="e.g. 24 Westgate, Chichester, PO19 3EU"
+              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-xs"
+            />
+          </div>
         </div>
+        <button
+          type="submit"
+          className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold"
+        >
+          Save Home Address
+        </button>
+      </form>
 
-        <form onSubmit={handleSaveSettings} className="space-y-4">
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
-            <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700">
-              Standard Driving Day Hours
-            </h4>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">First Lesson Start</label>
-                <input
-                  type="time"
-                  value={workStart}
-                  onChange={(e) => setWorkStart(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900 font-bold"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Last Lesson Start</label>
-                <input
-                  type="time"
-                  value={workEnd}
-                  onChange={(e) => setWorkEnd(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900 font-bold"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Automatic 24-Hour In-App & Free EmailJS Reminder Config */}
-          <div className="p-4 rounded-xl bg-emerald-50/70 border border-emerald-200 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <h4 className="text-xs font-extrabold uppercase tracking-wider text-emerald-950 flex items-center gap-1.5">
-                <Bell className="w-4 h-4 text-emerald-600" />
-                Automatic 24-Hour Pupil Reminders
-              </h4>
-              <label className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-900 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={auto24HrReminderEnabled}
-                  onChange={(e) => setAuto24HrReminderEnabled(e.target.checked)}
-                  className="w-4 h-4 rounded text-emerald-600"
-                />
-                Auto-Send 24h Prior
-              </label>
-            </div>
-
-            <p className="text-[11px] text-emerald-900 leading-relaxed">
-              Automatically dispatches an in-app attendance confirmation prompt 24 hours before every confirmed lesson. To also send an automatic <strong>email reminder</strong> (100% free up to 200/month via{' '}
-              <a
-                href="https://www.emailjs.com"
-                target="_blank"
-                rel="noreferrer"
-                className="underline font-bold"
-              >
-                emailjs.com
-              </a>
-              ), paste your free EmailJS keys below:
-            </p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <input
-                type="text"
-                value={emailJsServiceId}
-                onChange={(e) => setEmailJsServiceId(e.target.value)}
-                placeholder="EmailJS Service ID"
-                className="rounded-xl border border-emerald-200 px-3 py-1.5 text-xs bg-white text-slate-900"
-              />
-              <input
-                type="text"
-                value={emailJsTemplateId}
-                onChange={(e) => setEmailJsTemplateId(e.target.value)}
-                placeholder="EmailJS Template ID"
-                className="rounded-xl border border-emerald-200 px-3 py-1.5 text-xs bg-white text-slate-900"
-              />
-              <input
-                type="text"
-                value={emailJsPublicKey}
-                onChange={(e) => setEmailJsPublicKey(e.target.value)}
-                placeholder="EmailJS Public Key"
-                className="rounded-xl border border-emerald-200 px-3 py-1.5 text-xs bg-white text-slate-900"
-              />
-            </div>
-          </div>
-
-          <div className="p-4 rounded-xl bg-indigo-50/60 border border-indigo-200 space-y-3">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-extrabold uppercase tracking-wider text-indigo-950">
-                Work Rota / 2nd Calendar Feed (.ics / webcal://)
-              </h4>
-              <label className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-900 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={shiftEnabled}
-                  onChange={(e) => setShiftEnabled(e.target.checked)}
-                  className="w-4 h-4 rounded text-indigo-600"
-                />
-                Enabled
-              </label>
-            </div>
-
-            <div className="p-2.5 rounded-lg bg-white/90 border border-indigo-200 text-[11px] text-indigo-950 leading-relaxed">
-              <strong>Ignores Google &ldquo;Free&rdquo; Status:</strong> Even if your imported work rota shows as <em>Free</em> instead of <em>Busy</em> in Google Calendar, every shift event in this feed automatically blocks pupil bookings during those hours.
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-indigo-900 mb-1">
-                Work Rota .ics / webcal:// URL (or Private Google iCal link)
-              </label>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  type="text"
-                  value={icalUrl}
-                  onChange={(e) => setIcalUrl(e.target.value)}
-                  placeholder="https://... or webcal://... (.ics feed URL)"
-                  className="flex-1 rounded-xl border border-indigo-200 px-3 py-2 text-xs font-mono bg-white text-slate-900"
-                />
-                <button
-                  type="button"
-                  disabled={isSyncingRota}
-                  onClick={() => handleSyncWorkRotaFeed(icalUrl)}
-                  className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 whitespace-nowrap shadow-sm"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncingRota ? 'animate-spin' : ''}`} />
-                  {isSyncingRota ? 'Syncing...' : 'Sync Rota Now'}
-                </button>
-              </div>
-              {rotaEvents.length > 0 && (
-                <div className="mt-2 p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 space-y-1">
-                  <p className="text-[11px] font-extrabold text-emerald-800">
-                    ✓ {rotaEvents.length} Connecteam / Work Rota shift(s) actively blocking availability
-                    {settings.lastRotaSyncAt
-                      ? ` (Synced: ${new Date(settings.lastRotaSyncAt).toLocaleString('en-GB', {
-                          day: 'numeric',
-                          month: 'short',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })})`
-                      : ''}
-                  </p>
-                  <div className="max-h-28 overflow-y-auto space-y-1 pt-1 border-t border-emerald-200/70">
-                    {rotaEvents
-                      .filter((ev) => ev.date >= getUpcomingDateStr(0))
-                      .slice(0, 6)
-                      .map((ev) => (
-                        <div key={ev.id} className="text-[11px] text-emerald-950 flex justify-between">
-                          <span className="font-semibold truncate pr-2">{ev.title}</span>
-                          <span className="font-mono font-bold flex-shrink-0">
-                            {formatReadableDate(ev.date)} ({ev.allDay ? 'All Day' : `${ev.startTime}-${ev.endTime}`})
-                          </span>
-                        </div>
-                      ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                {icalUrl && (
-                  <a
-                    href={icalUrl.replace(/^webcal:\/\//i, 'https://')}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-100 hover:bg-indigo-200 text-indigo-950 border border-indigo-300 text-[11px] font-bold transition"
-                  >
-                    <Download className="w-3.5 h-3.5 text-indigo-700" />
-                    1. Download Connecteam .ics File
-                  </a>
-                )}
-                <input
-                  ref={icsFileRef}
-                  type="file"
-                  accept=".ics,text/calendar"
-                  onChange={handleIcsFileUpload}
-                  className="hidden"
-                />
-                <button
-                  type="button"
-                  onClick={() => icsFileRef.current?.click()}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-indigo-100 text-indigo-900 border border-indigo-200 text-[11px] font-bold transition"
-                >
-                  <FileText className="w-3.5 h-3.5 text-indigo-600" />
-                  {icalUrl ? '2. Upload Downloaded .ics File' : 'Upload Downloaded .ics File'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowManualIcsPaste(!showManualIcsPaste)}
-                  className="text-[11px] font-bold text-indigo-700 hover:underline"
-                >
-                  {showManualIcsPaste ? 'Hide Paste Box' : 'Or Paste .ics Text'}
-                </button>
-              </div>
-
-              {showManualIcsPaste && (
-                <div className="mt-2.5 p-3 rounded-xl bg-white border border-indigo-200 space-y-2">
-                  <p className="text-[11px] text-slate-600">
-                    If your rota URL blocks external fetchers, open your rota link in a new browser tab, press{' '}
-                    <strong>Ctrl+A</strong> then <strong>Ctrl+C</strong>, and paste it here:
-                  </p>
-                  <textarea
-                    rows={3}
-                    value={manualIcsText}
-                    onChange={(e) => setManualIcsText(e.target.value)}
-                    placeholder="BEGIN:VCALENDAR..."
-                    className="w-full rounded-lg border border-slate-300 p-2 text-[11px] font-mono bg-white text-slate-900"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      try {
-                        applyParsedRotaEvents(manualIcsText, icalUrl);
-                        setManualIcsText('');
-                        setShowManualIcsPaste(false);
-                      } catch (err) {
-                        notify('Invalid Calendar Text', err.message, 'error');
-                      }
-                    }}
-                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold"
-                  >
-                    Import Pasted Rota Shifts
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-indigo-900 mb-1">
-                  Fallback Recurring Shift Start
-                </label>
-                <input
-                  type="time"
-                  value={shiftStart}
-                  onChange={(e) => setShiftStart(e.target.value)}
-                  className="w-full rounded-xl border border-indigo-200 px-3 py-1.5 text-xs font-bold bg-white text-slate-900"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-indigo-900 mb-1">
-                  Fallback Recurring Shift End
-                </label>
-                <input
-                  type="time"
-                  value={shiftEnd}
-                  onChange={(e) => setShiftEnd(e.target.value)}
-                  className="w-full rounded-xl border border-indigo-200 px-3 py-1.5 text-xs font-bold bg-white text-slate-900"
-                />
-              </div>
-            </div>
-
-            <div>
-              <span className="block text-xs font-bold text-indigo-900 mb-1.5">
-                Optional Fixed Weekly Shift Days (Leave all unselected if using your live .ics rota link above):
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((dName, idx) => {
-                  const active = shiftDays.includes(idx);
-                  return (
-                    <button
-                      key={dName}
-                      type="button"
-                      onClick={() =>
-                        setShiftDays((prev) =>
-                          prev.includes(idx) ? prev.filter((d) => d !== idx) : [...prev, idx]
-                        )
-                      }
-                      className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${
-                        active
-                          ? 'bg-indigo-600 text-white border-indigo-600'
-                          : 'bg-white text-slate-600 border-slate-300'
-                      }`}
-                    >
-                      {dName}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
+      <div className="space-y-3">
+        <h3 className="text-sm font-extrabold text-slate-900">
+          Alternative Pick-Up / Drop-Off Locations
+        </h3>
+        <form onSubmit={handleAddLocation} className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+          <input
+            type="text"
+            value={newLabel}
+            onChange={(e) => setNewLabel(e.target.value)}
+            placeholder="Label (e.g. College / Work)"
+            className="sm:col-span-3 px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs"
+          />
+          <input
+            type="text"
+            value={newAddress}
+            onChange={(e) => setNewAddress(e.target.value)}
+            placeholder="Full street address & postcode"
+            className="sm:col-span-5 px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs"
+          />
+          <select
+            value={newPostcode}
+            onChange={(e) => setNewPostcode(e.target.value)}
+            className="sm:col-span-2 px-2.5 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold"
+          >
+            {WEST_SUSSEX_POSTCODES.map((pc) => (
+              <option key={pc} value={pc}>
+                {pc.split('-')[0].trim()}
+              </option>
+            ))}
+          </select>
           <button
             type="submit"
-            className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-sm"
+            className="sm:col-span-2 py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold"
           >
-            Save Working Hours &amp; Google Calendar Rules
+            + Add
           </button>
         </form>
+
+        {savedLocations.length > 0 && (
+          <div className="space-y-2 pt-2">
+            {savedLocations.map((loc) => (
+              <div
+                key={loc.id}
+                className="px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs"
+              >
+                <div>
+                  <span className="font-extrabold text-slate-900">{loc.label}:</span>{' '}
+                  <span className="text-slate-600">{loc.address}</span>{' '}
+                  <span className="text-slate-400">({loc.postcode.split('-')[0].trim()})</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveLocation(loc.id)}
+                  className="text-rose-600 hover:text-rose-800 font-bold"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 // ============================================================================
-// SUB-COMPONENT: ACCOUNT MANAGEMENT & DELETION CONTROLS
+// PUPIL SETTINGS: CALENDAR INTEGRATION CARD (.ICS DOWNLOAD & GOOGLE CAL LINKS)
 // ============================================================================
-function AccountManagementView({ currentUser, isInstructor, accounts, onOpenCreate, onRequestDelete }) {
+function PupilCalendarIntegrationCard({ pupil, lessons, notify }) {
+  const confirmedLessons = lessons.filter(
+    (l) => l.pupilId === pupil.id && l.status === 'confirmed'
+  );
+
+  const handleDownloadAllICS = () => {
+    if (confirmedLessons.length === 0) {
+      notify('You have no confirmed lessons to export yet.', 'info');
+      return;
+    }
+    const content = buildLessonICSContent(confirmedLessons, pupil.name);
+    downloadICSFile('LearnToPassWithUs_Lessons.ics', content);
+    notify('Downloaded .ics file! Open it to add lessons to Apple Calendar or Outlook.');
+  };
+
   return (
-    <div className="space-y-6">
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-extrabold text-slate-900">Account &amp; Profile Management</h2>
+          <h3 className="text-base font-extrabold text-slate-900">
+            Sync Driving Lessons to Your Phone Calendar
+          </h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            {isInstructor
-              ? 'As Instructor, you can create or delete any Pupil or Instructor account.'
-              : 'Manage your pupil profile or permanently delete your own account.'}
+            Download an Apple Calendar / Outlook file for all confirmed lessons, or add individual
+            lessons directly to Google Calendar.
           </p>
         </div>
-
         <button
-          onClick={onOpenCreate}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold shadow-sm"
+          type="button"
+          onClick={handleDownloadAllICS}
+          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shrink-0"
         >
-          <UserPlus className="w-4 h-4" />
-          Create New Account
+          <Download className="w-4 h-4" />
+          <span>Download Apple / Outlook (.ics)</span>
         </button>
       </div>
 
+      {confirmedLessons.length > 0 && (
+        <div className="space-y-2 pt-2 border-t border-slate-100">
+          <div className="text-xs font-bold text-slate-700">1-Tap Google Calendar Quick-Add:</div>
+          {confirmedLessons.map((l) => (
+            <div
+              key={l.id}
+              className="px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2 text-xs"
+            >
+              <span className="font-semibold text-slate-800">
+                {formatFriendlyDate(l.date)} at {l.startTime} ({l.durationMins}m)
+              </span>
+              <a
+                href={buildGoogleCalendarUrl(l)}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700"
+              >
+                <span>+ Google Cal</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// ACCOUNT MANAGEMENT VIEW (IN SETTINGS TAB)
+// ============================================================================
+function AccountManagementView({
+  currentUser,
+  isInstructor,
+  accounts,
+  onOpenCreate,
+  onRequestDelete
+}) {
+  return (
+    <div className="space-y-4">
       <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full">
@@ -3935,58 +3571,65 @@ function AccountManagementView({ currentUser, isInstructor, accounts, onOpenCrea
           </span>
           <h3 className="text-base font-extrabold text-slate-900 mt-1.5">{currentUser.name}</h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            {currentUser.email} • {currentUser.postcode}
+            {currentUser.email} •{' '}
+            {currentUser.homeAddress
+              ? `${currentUser.homeAddress} (${currentUser.postcode.split('-')[0].trim()})`
+              : currentUser.postcode}
           </p>
         </div>
 
-        <button
-          onClick={() => onRequestDelete(currentUser)}
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs sm:text-sm font-bold"
-        >
-          <Trash2 className="w-4 h-4" />
-          Delete My Own Account
-        </button>
+        <div className="flex items-center gap-2">
+          {isInstructor && (
+            <button
+              onClick={onOpenCreate}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Create Pupil Account</span>
+            </button>
+          )}
+          <button
+            onClick={() => onRequestDelete(currentUser)}
+            className="px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold"
+          >
+            Delete My Account
+          </button>
+        </div>
       </div>
 
       {isInstructor && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-100">
-            <h3 className="text-base font-extrabold text-slate-900">
-              All School Accounts ({accounts.length})
-            </h3>
-          </div>
-
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-3">
+          <h3 className="text-base font-extrabold text-slate-900">
+            Registered Pupil &amp; Instructor Accounts ({accounts.length})
+          </h3>
           <div className="divide-y divide-slate-100">
             {accounts.map((acc) => (
               <div
                 key={acc.id}
-                className="p-4 sm:px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
               >
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="font-extrabold text-sm text-slate-900">{acc.name}</span>
-                    <span
-                      className={`text-[10px] uppercase font-extrabold px-2 py-0.5 rounded-full ${
-                        acc.role === 'instructor'
-                          ? 'bg-zinc-900 text-amber-400'
-                          : 'bg-blue-100 text-blue-800'
-                      }`}
-                    >
+                    <span className="text-sm font-extrabold text-slate-900">{acc.name}</span>
+                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
                       {acc.role}
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    {acc.email} • Pick-up Area: {acc.postcode}
+                    {acc.email} • Pick-up:{' '}
+                    {acc.homeAddress
+                      ? `${acc.homeAddress} (${acc.postcode.split('-')[0].trim()})`
+                      : acc.postcode}
                   </p>
                 </div>
-
-                <button
-                  onClick={() => onRequestDelete(acc)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-red-50 text-red-600 border border-red-200 text-xs font-bold self-start sm:self-auto"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Delete {acc.role === 'instructor' ? 'Instructor' : 'Pupil'}
-                </button>
+                {acc.id !== currentUser.id && (
+                  <button
+                    onClick={() => onRequestDelete(acc)}
+                    className="self-start sm:self-center px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold"
+                  >
+                    Delete Account
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -4011,621 +3654,46 @@ function InstructorAddLessonModal({ pupilsList, defaultDate, onClose, onCreate }
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!selectedPupil) return;
+    const areaCode = (selectedPupil.postcode || 'PO19 - Chichester City Centre')
+      .split('-')[0]
+      .trim();
+    const resolvedPickup = selectedPupil.homeAddress?.trim()
+      ? `${areaCode} - ${selectedPupil.homeAddress.trim()} (Home)`
+      : selectedPupil.postcode;
     onCreate({
       pupilAccount: selectedPupil,
       date,
       startTime,
       durationMins,
-      pickupLocation: selectedPupil.postcode,
+      pickupLocation: resolvedPickup,
+      dropoffLocation: resolvedPickup,
       pupilNotes: '',
       notes
     });
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
-        <h3 className="text-lg font-extrabold text-slate-900">Add Lesson Directly for Pupil</h3>
-        <p className="text-xs text-slate-500 mt-0.5">
-          Books &amp; confirms immediately and attaches your focus notes to the pupil&apos;s calendar entry.
-        </p>
-
-        <form onSubmit={handleSubmit} className="mt-4 space-y-3">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Select Pupil</label>
-            <select
-              value={pupilId}
-              onChange={(e) => setPupilId(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold bg-white text-slate-900"
-            >
-              {pupilsList.length === 0 ? (
-                <option value="">No pupils registered yet</option>
-              ) : (
-                pupilsList.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.postcode.split('-')[0].trim()})
-                  </option>
-                ))
-              )}
-            </select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Date</label>
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Start Time</label>
-              <input
-                type="time"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Duration</label>
-            <select
-              value={durationMins}
-              onChange={(e) => setDurationMins(Number(e.target.value))}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold bg-white text-slate-900"
-            >
-              <option value={60}>1 Hour (60 mins)</option>
-              <option value={90}>1.5 Hours (90 mins)</option>
-              <option value={120}>2 Hours (120 mins)</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              What we will work on next lesson (Notes)
-            </label>
-            <textarea
-              rows={2}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 p-2.5 text-xs bg-white text-slate-900"
-            />
-          </div>
-
-          <div className="pt-2 flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-100"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={!selectedPupil}
-              className="px-4 py-2 rounded-xl text-sm font-bold bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white"
-            >
-              Confirm &amp; Notify Pupil
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// ============================================================================
-// DEDICATED LOGIN & PUPIL SIGN-UP PORTAL (BRIGHT LIGHT THEME + CAPS LOCK ALERT)
-// ============================================================================
-function AuthPortalView({ accounts, customCarPhoto, cloudReady, onLoginSuccess, onRegisterAccount }) {
-  const [mode, setMode] = useState('login');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [capsLockOn, setCapsLockOn] = useState(false);
-  const [fullName, setFullName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [postcode, setPostcode] = useState('PO19 - Chichester City Centre');
-  const [role, setRole] = useState('pupil');
-  const [instructorCode, setInstructorCode] = useState('');
-  const [errorMsg, setErrorMsg] = useState('');
-
-  const checkCapsLock = (e) => {
-    if (e && typeof e.getModifierState === 'function') {
-      setCapsLockOn(e.getModifierState('CapsLock'));
-    }
-  };
-
-  useEffect(() => {
-    const handleGlobalKey = (e) => {
-      if (typeof e.getModifierState === 'function') {
-        setCapsLockOn(e.getModifierState('CapsLock'));
-      }
-    };
-    window.addEventListener('keydown', handleGlobalKey);
-    window.addEventListener('keyup', handleGlobalKey);
-    return () => {
-      window.removeEventListener('keydown', handleGlobalKey);
-      window.removeEventListener('keyup', handleGlobalKey);
-    };
-  }, []);
-
-  const handleLogin = (e) => {
-    e.preventDefault();
-    setErrorMsg('');
-    const cleanEmail = email.trim().toLowerCase();
-    const matched = accounts.find((a) => a.email.toLowerCase() === cleanEmail);
-
-    if (!matched) {
-      setErrorMsg('No account found with that email address. Please check your email or register a new pupil account.');
-      return;
-    }
-
-    const expectedPassword = matched.password || 'Pass2026!';
-    if (password !== expectedPassword) {
-      setErrorMsg('Incorrect password. Please try again.');
-      return;
-    }
-
-    onLoginSuccess(matched);
-  };
-
-  const handleRegister = (e) => {
-    e.preventDefault();
-    setErrorMsg('');
-
-    if (!fullName.trim() || !email.trim() || !password.trim()) {
-      setErrorMsg('Please fill in your full name, email address, and password.');
-      return;
-    }
-
-    if (password.length < 6) {
-      setErrorMsg('Please choose a password with at least 6 characters.');
-      return;
-    }
-
-    const exists = accounts.some((a) => a.email.toLowerCase() === email.trim().toLowerCase());
-    if (exists) {
-      setErrorMsg('An account with this email already exists. Please sign in instead.');
-      return;
-    }
-
-    if (role === 'instructor' && instructorCode.trim() !== 'EN56WXA') {
-      setErrorMsg('Invalid Instructor Access Code. Pupils should register under the Pupil tab.');
-      return;
-    }
-
-    const newAcc = {
-      id: `${role}-${Date.now()}`,
-      name: fullName.trim(),
-      role,
-      email: email.trim(),
-      password: password.trim(),
-      phone: phone.trim() || '07700 900999',
-      postcode,
-      testDate: ''
-    };
-
-    onRegisterAccount(newAcc);
-  };
-
-  const lightInputClass =
-    'w-full rounded-xl border border-slate-300 bg-white text-slate-900 placeholder-slate-400 px-3.5 py-2.5 text-sm shadow-sm focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/30 focus:outline-none [color-scheme:light]';
-
-  return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col justify-between [color-scheme:light]">
-      <header className="bg-white border-b border-slate-200 px-4 sm:px-8 py-4 shadow-sm">
-        <div className="max-w-6xl w-full mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-md">
-              <Car className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-lg font-extrabold tracking-tight text-slate-900">
-                  Learn To Pass With Us
-                </span>
-                <span className="bg-amber-400 text-zinc-950 font-mono font-black text-[10px] px-1.5 py-0.5 rounded border border-amber-500/40">
-                  EN56 WXA
-                </span>
-              </div>
-              <p className="text-xs text-slate-500">Chichester &amp; West Sussex Driving School</p>
-            </div>
-          </div>
-
-          <span
-            className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full border ${
-              cloudReady
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                : 'bg-slate-100 text-slate-600 border-slate-300'
-            }`}
-          >
-            <Cloud className="w-3.5 h-3.5" />
-            {cloudReady ? 'Live Booking Portal' : 'Ready to Sign In'}
-          </span>
-        </div>
-      </header>
-
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-8 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
-        <div className="lg:col-span-7 space-y-6">
-          <div className="space-y-3">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold uppercase tracking-wider">
-              <ShieldCheck className="w-4 h-4 text-emerald-600" /> DVSA Approved Driving Instruction
-            </span>
-            <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-slate-900 leading-tight">
-              Book Lessons, Track Your DVSA Progress &amp; Sync Your Calendar.
-            </h1>
-            <p className="text-sm sm:text-base text-slate-600 leading-relaxed max-w-xl">
-              Sign in to your personal pupil portal to book 1hr, 1.5hr, or 2hr manual driving lessons in Chichester &amp; West Sussex, view your step-by-step DVSA syllabus plan, and sync lessons straight to your phone.
-            </p>
-          </div>
-
-          <VWGolfGTIBadge customCarPhoto={customCarPhoto} compact={false} />
+    <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl border border-slate-200 max-w-md w-full p-6 shadow-2xl space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-black text-slate-900">Schedule Lesson for Pupil</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-sm font-bold">
+            ✕
+          </button>
         </div>
 
-        <div className="lg:col-span-5 bg-white text-slate-900 rounded-3xl p-6 sm:p-8 shadow-xl border border-slate-200">
-          <div className="grid grid-cols-2 gap-1.5 bg-slate-100 p-1 rounded-2xl mb-6 border border-slate-200/80">
-            <button
-              type="button"
-              onClick={() => {
-                setMode('login');
-                setErrorMsg('');
-              }}
-              className={`py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition ${
-                mode === 'login'
-                  ? 'bg-zinc-900 text-white shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Sign In
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMode('register');
-                setErrorMsg('');
-              }}
-              className={`py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition ${
-                mode === 'register'
-                  ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              New Pupil Sign Up
-            </button>
-          </div>
-
-          {errorMsg && (
-            <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-xs font-semibold text-red-700 flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-              <span>{errorMsg}</span>
-            </div>
-          )}
-
-          {capsLockOn && (
-            <div className="mb-4 p-3 rounded-xl bg-amber-50 border-2 border-amber-400 text-xs font-bold text-amber-900 flex items-center gap-2 shadow-sm">
-              <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
-              <span>CAPS LOCK IS ON — Passwords are case-sensitive.</span>
-            </div>
-          )}
-
-          {mode === 'login' ? (
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Email Address</label>
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  onKeyUp={checkCapsLock}
-                  placeholder="you@example.co.uk"
-                  className={lightInputClass}
-                />
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-bold text-slate-700">Password</label>
-                  {capsLockOn && (
-                    <span className="text-[11px] font-extrabold text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
-                      CAPS LOCK ON
-                    </span>
-                  )}
-                </div>
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    onKeyUp={checkCapsLock}
-                    onKeyDown={checkCapsLock}
-                    onFocus={checkCapsLock}
-                    placeholder="Enter your password"
-                    className={`${lightInputClass} pr-10`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
-                    title={showPassword ? 'Hide password' : 'Show password'}
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm shadow-md transition"
-              >
-                Sign In to My Portal
-              </button>
-
-              <p className="text-[11px] text-center text-slate-500 pt-2">
-                New to Learn To Pass With Us? Switch to the{' '}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMode('register');
-                    setErrorMsg('');
-                  }}
-                  className="font-bold text-emerald-700 hover:underline"
-                >
-                  New Pupil Sign Up
-                </button>{' '}
-                tab above to create your personal login.
-              </p>
-            </form>
-          ) : (
-            <form onSubmit={handleRegister} className="space-y-3.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-700">Registering As:</span>
-                <div className="flex gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setRole('pupil')}
-                    className={`px-3 py-1 rounded-lg text-xs font-bold border ${
-                      role === 'pupil'
-                        ? 'bg-emerald-600 text-white border-emerald-600'
-                        : 'bg-white text-slate-600 border-slate-300'
-                    }`}
-                  >
-                    Pupil
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRole('instructor')}
-                    className={`px-3 py-1 rounded-lg text-xs font-bold border ${
-                      role === 'instructor'
-                        ? 'bg-zinc-900 text-white border-zinc-900'
-                        : 'bg-white text-slate-600 border-slate-300'
-                    }`}
-                  >
-                    Instructor
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Full Name</label>
-                <input
-                  type="text"
-                  required
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  onKeyUp={checkCapsLock}
-                  placeholder="e.g., Charlie Evans"
-                  className={lightInputClass}
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Email Address</label>
-                  <input
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    onKeyUp={checkCapsLock}
-                    placeholder="charlie@example.co.uk"
-                    className={lightInputClass}
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Mobile Number</label>
-                  <input
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="07700 900123"
-                    className={lightInputClass}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Pick-Up Postcode Area
-                </label>
-                <select
-                  value={postcode}
-                  onChange={(e) => setPostcode(e.target.value)}
-                  className={`${lightInputClass} font-semibold`}
-                >
-                  {WEST_SUSSEX_LOCATIONS.map((loc) => (
-                    <option key={loc.code} value={`${loc.code} - ${loc.name}`}>
-                      {loc.code} — {loc.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-bold text-slate-700">Create Password</label>
-                  {capsLockOn && (
-                    <span className="text-[11px] font-extrabold text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
-                      CAPS LOCK ON
-                    </span>
-                  )}
-                </div>
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    onKeyUp={checkCapsLock}
-                    onKeyDown={checkCapsLock}
-                    onFocus={checkCapsLock}
-                    placeholder="Min. 6 characters"
-                    className={`${lightInputClass} pr-10`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
-                    title={showPassword ? 'Hide password' : 'Show password'}
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              {role === 'instructor' && (
-                <div>
-                  <label className="block text-xs font-bold text-amber-800 mb-1">
-                    Instructor Access Code
-                  </label>
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    value={instructorCode}
-                    onChange={(e) => setInstructorCode(e.target.value)}
-                    onKeyUp={checkCapsLock}
-                    onKeyDown={checkCapsLock}
-                    placeholder="Enter school instructor code"
-                    className="w-full rounded-xl border border-amber-300 bg-amber-50 text-slate-900 placeholder-slate-400 px-3.5 py-2.5 text-sm shadow-sm focus:border-amber-500 focus:ring-2 focus:ring-amber-400/30 focus:outline-none [color-scheme:light]"
-                  />
-                </div>
-              )}
-
-              <button
-                type="submit"
-                className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm shadow-md transition"
-              >
-                Create Account &amp; Enter Portal
-              </button>
-            </form>
-          )}
-        </div>
-      </main>
-
-      <footer className="text-center text-xs text-slate-500 py-4 border-t border-slate-200 bg-white">
-        © {new Date().getFullYear()} Learn To Pass With Us • Manual Tuition in VW Golf Mk5 GTI (EN56 WXA)
-      </footer>
-    </div>
-  );
-}
-
-// ============================================================================
-// SUB-COMPONENT: DVSA SYLLABUS & LESSON PLAN FLOWCHART (PUPILS / PROGRESS TAB)
-// ============================================================================
-function SyllabusFlowchartView({
-  isInstructor,
-  currentUser,
-  pupilsList,
-  selectedPupilId,
-  setSelectedPupilId,
-  syllabusProgress,
-  setSyllabusProgress,
-  onPersistSyllabus,
-  notify
-}) {
-  const activePupilId = isInstructor
-    ? selectedPupilId || pupilsList[0]?.id || ''
-    : currentUser.id;
-
-  const activePupil = isInstructor
-    ? pupilsList.find((p) => p.id === activePupilId) || pupilsList[0]
-    : currentUser;
-
-  const currentSkills = (activePupil && syllabusProgress[activePupil.id]) || {};
-
-  const readinessPercent = useMemo(() => {
-    const totalPossible = DVSA_SYLLABUS_SKILLS.length * 5;
-    const earned = DVSA_SYLLABUS_SKILLS.reduce(
-      (sum, skill) => sum + (Number(currentSkills[skill.id]) || 0),
-      0
-    );
-    return Math.round((earned / totalPossible) * 100);
-  }, [currentSkills]);
-
-  const handleUpdateSkillLevel = (skillId, levelVal) => {
-    if (!isInstructor || !activePupil) return;
-    const updatedForPupil = {
-      ...currentSkills,
-      [skillId]: levelVal
-    };
-    setSyllabusProgress((prev) => ({
-      ...prev,
-      [activePupil.id]: updatedForPupil
-    }));
-    onPersistSyllabus?.(activePupil.id, updatedForPupil);
-    notify(
-      'DVSA Progress Updated',
-      `Updated ${activePupil.name}'s syllabus rating to "${SKILL_LEVELS[levelVal].label}".`
-    );
-  };
-
-  if (isInstructor && pupilsList.length === 0) {
-    return (
-      <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center shadow-sm space-y-2">
-        <Users className="w-10 h-10 text-slate-400 mx-auto" />
-        <h2 className="text-lg font-extrabold text-slate-900">No Pupils Registered Yet</h2>
-        <p className="text-xs text-slate-500 max-w-md mx-auto">
-          Once a pupil signs up or you add them via <strong>Add User</strong> in the top bar, their DVSA 5-stage syllabus progress tracker will appear here.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full">
-            <Award className="w-3.5 h-3.5" /> Official DVSA Syllabus Tracker
-          </span>
-          <h2 className="text-lg sm:text-xl font-black text-slate-900 mt-1">
-            {isInstructor
-              ? `Pupil Lesson Plan: ${activePupil?.name || ''}`
-              : 'My Driving Progress & Test Readiness'}
-          </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            {isInstructor
-              ? 'Tap any rating button below to update your pupil’s live DVSA stage progress.'
-              : 'Track your progress across all 5 DVSA stages toward driving test readiness.'}
+        {pupilsList.length === 0 ? (
+          <p className="text-xs text-slate-600">
+            No pupils registered yet. Create a pupil account in Settings first.
           </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-4">
-          {isInstructor && (
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-3">
             <div>
-              <label className="block text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mb-1">
-                Select Pupil
-              </label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Select Pupil</label>
               <select
-                value={activePupil?.id || ''}
-                onChange={(e) => setSelectedPupilId(e.target.value)}
-                className="rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-bold bg-white text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                value={pupilId}
+                onChange={(e) => setPupilId(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold"
               >
                 {pupilsList.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -4634,253 +3702,67 @@ function SyllabusFlowchartView({
                 ))}
               </select>
             </div>
-          )}
 
-          <div className="bg-zinc-900 text-white px-4 py-3 rounded-2xl min-w-[155px]">
-            <span className="text-[10px] uppercase tracking-wider font-bold text-zinc-400 block">
-              Test Readiness
-            </span>
-            <div className="flex items-baseline gap-2 mt-0.5">
-              <span className="text-2xl font-black text-emerald-400">{readinessPercent}%</span>
-              <span className="text-[11px] text-zinc-300 font-semibold">Complete</span>
-            </div>
-            <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden mt-2">
-              <div
-                className="h-full bg-emerald-500 rounded-full transition-all duration-300"
-                style={{ width: `${readinessPercent}%` }}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Syllabus Skills Flowchart Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {DVSA_SYLLABUS_SKILLS.map((skill, idx) => {
-          const currentLevelVal = Number(currentSkills[skill.id]) || 0;
-          const levelMeta = SKILL_LEVELS[currentLevelVal] || SKILL_LEVELS[0];
-
-          return (
-            <div
-              key={skill.id}
-              className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col justify-between gap-4 hover:border-emerald-300 transition"
-            >
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
-                    {skill.category}
-                  </span>
-                  <span
-                    className={`inline-flex items-center gap-1.5 text-[11px] font-extrabold px-2.5 py-0.5 rounded-full border ${levelMeta.color}`}
-                  >
-                    <span className={`w-2 h-2 rounded-full ${levelMeta.dot}`} />
-                    {levelMeta.label}
-                  </span>
-                </div>
-
-                <h3 className="text-base font-extrabold text-slate-900 mt-1.5">
-                  {idx + 1}. {skill.title}
-                </h3>
-                <p className="text-xs text-slate-600 mt-1 leading-relaxed">{skill.desc}</p>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Date</label>
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold"
+                />
               </div>
-
-              <div className="pt-3 border-t border-slate-100">
-                <span className="block text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mb-2">
-                  {isInstructor ? 'Set Competence Level:' : 'Current Competence Level:'}
-                </span>
-                <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
-                  {SKILL_LEVELS.map((lvl) => {
-                    const selected = currentLevelVal === lvl.value;
-                    return (
-                      <button
-                        key={lvl.value}
-                        type="button"
-                        disabled={!isInstructor}
-                        onClick={() => handleUpdateSkillLevel(skill.id, lvl.value)}
-                        className={`py-1.5 px-1 rounded-lg text-[10px] font-extrabold border text-center transition ${
-                          selected
-                            ? 'bg-zinc-900 text-white border-zinc-900 shadow-xs'
-                            : isInstructor
-                            ? 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 cursor-pointer'
-                            : 'bg-slate-50 text-slate-400 border-slate-100 cursor-default'
-                        }`}
-                      >
-                        {lvl.label}
-                      </button>
-                    );
-                  })}
-                </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Start Time</label>
+                <input
+                  type="time"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold"
+                />
               </div>
             </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
-// ============================================================================
-// SUB-COMPONENT: DIRECT MESSAGING & AUTOMATED ALERTS INBOX (MESSAGES TAB)
-// ============================================================================
-function MessagingCenterView({
-  currentUser,
-  isInstructor,
-  pupilsList,
-  accounts,
-  messages,
-  setMessages,
-  onMarkRead,
-  onSendMessage,
-  notify
-}) {
-  const instructorAccount = accounts.find((a) => a.role === 'instructor');
-  const [recipientId, setRecipientId] = useState(
-    isInstructor ? pupilsList[0]?.id || '' : instructorAccount?.id || 'instructor-main'
-  );
-  const [messageText, setMessageText] = useState('');
-
-  useEffect(() => {
-    if (isInstructor && !recipientId && pupilsList.length > 0) {
-      setRecipientId(pupilsList[0].id);
-    }
-    if (!isInstructor && instructorAccount?.id) {
-      setRecipientId(instructorAccount.id);
-    }
-  }, [isInstructor, pupilsList, instructorAccount, recipientId]);
-
-  const myMessages = useMemo(() => {
-    return messages.filter(
-      (m) => m.toId === currentUser.id || m.fromId === currentUser.id
-    );
-  }, [messages, currentUser.id]);
-
-  // Mark unread messages addressed to currentUser as read when viewing
-  useEffect(() => {
-    const unread = myMessages.filter((m) => m.toId === currentUser.id && !m.read);
-    if (unread.length === 0) return;
-    setMessages((prev) =>
-      prev.map((m) => (m.toId === currentUser.id && !m.read ? { ...m, read: true } : m))
-    );
-    unread.forEach((m) => onMarkRead?.(m.id));
-  }, [myMessages, currentUser.id]);
-
-  const handleSend = (e) => {
-    e.preventDefault();
-    const clean = messageText.trim();
-    if (!clean) return;
-
-    const targetAcc = accounts.find((a) => a.id === recipientId);
-    const targetId = targetAcc?.id || (isInstructor ? '' : 'instructor-main');
-    const targetName = targetAcc?.name || (isInstructor ? 'Pupil' : 'Instructor');
-
-    if (!targetId) {
-      notify('Select a Recipient', 'Please choose a pupil to message.', 'error');
-      return;
-    }
-
-    onSendMessage(targetId, targetName, clean, 'direct');
-    setMessageText('');
-    notify('Message Sent', `Sent to ${targetName}.`);
-  };
-
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-      {/* Compose Box */}
-      <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-4 self-start">
-        <div className="flex items-center gap-2">
-          <MessageSquare className="w-5 h-5 text-emerald-600" />
-          <div>
-            <h2 className="text-base font-extrabold text-slate-900">Send a Message</h2>
-            <p className="text-xs text-slate-500">
-              {isInstructor
-                ? 'Message any pupil directly about pick-ups, tests, or lesson slots.'
-                : 'Send a direct message to your instructor.'}
-            </p>
-          </div>
-        </div>
-
-        <form onSubmit={handleSend} className="space-y-3">
-          {isInstructor && (
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">To Pupil</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Duration</label>
               <select
-                value={recipientId}
-                onChange={(e) => setRecipientId(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold bg-white text-slate-900"
+                value={durationMins}
+                onChange={(e) => setDurationMins(Number(e.target.value))}
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold"
               >
-                {pupilsList.length === 0 ? (
-                  <option value="">No pupils registered yet</option>
-                ) : (
-                  pupilsList.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))
-                )}
+                <option value={60}>1 Hour (60 mins)</option>
+                <option value={90}>1.5 Hours (90 mins)</option>
+                <option value={120}>2 Hours (120 mins)</option>
               </select>
             </div>
-          )}
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Message</label>
-            <textarea
-              rows={4}
-              value={messageText}
-              onChange={(e) => setMessageText(e.target.value)}
-              placeholder="Write your message here..."
-              className="w-full rounded-xl border border-slate-300 p-3 text-sm bg-white text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-            />
-          </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Lesson Focus</label>
+              <input
+                type="text"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs"
+              />
+            </div>
 
-          <button
-            type="submit"
-            disabled={isInstructor && pupilsList.length === 0}
-            className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-sm font-extrabold flex items-center justify-center gap-2 shadow-sm transition"
-          >
-            <Send className="w-4 h-4" />
-            Send Message
-          </button>
-        </form>
-      </div>
-
-      {/* Inbox Feed */}
-      <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h3 className="text-base font-extrabold text-slate-900">
-            Inbox &amp; Booking Notifications ({myMessages.length})
-          </h3>
-        </div>
-
-        {myMessages.length === 0 ? (
-          <div className="p-8 text-center text-sm text-slate-500">
-            No messages or booking notifications yet.
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-100 max-h-[540px] overflow-y-auto">
-            {myMessages.map((msg) => {
-              const isSentByMe = msg.fromId === currentUser.id;
-              return (
-                <div key={msg.id} className="p-4 sm:px-5 space-y-1.5 hover:bg-slate-50/70">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-extrabold text-slate-900">
-                      {isSentByMe ? `To: ${msg.toName}` : `From: ${msg.fromName}`}
-                    </span>
-                    <span className="text-[11px] text-slate-400 font-semibold">
-                      {msg.timestamp
-                        ? new Date(msg.timestamp).toLocaleString('en-GB', {
-                            day: 'numeric',
-                            month: 'short',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })
-                        : ''}
-                    </span>
-                  </div>
-                  <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">{msg.text}</p>
-                </div>
-              );
-            })}
-          </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold"
+              >
+                Confirm Lesson
+              </button>
+            </div>
+          </form>
         )}
       </div>
     </div>
@@ -4888,128 +3770,168 @@ function MessagingCenterView({
 }
 
 // ============================================================================
-// MODAL: CREATE NEW PUPIL OR INSTRUCTOR ACCOUNT (INSTRUCTOR ADMIN)
+// MODAL: INSTRUCTOR CREATES A NEW PUPIL ACCOUNT
 // ============================================================================
-function CreateAccountModal({ onClose, onCreated }) {
+function CreateAccountModal({ onClose, onCreate }) {
   const [name, setName] = useState('');
-  const [role, setRole] = useState('pupil');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('Pass2026!');
-  const [postcode, setPostcode] = useState('PO19 - Chichester City Centre');
+  const [password, setPassword] = useState('Pass123!');
+  const [postcode, setPostcode] = useState(WEST_SUSSEX_POSTCODES[0]);
+  const [homeAddress, setHomeAddress] = useState('');
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!name.trim()) return;
-    const id = `${role}-${Date.now()}`;
-    onCreated({
-      id,
+    if (!name.trim() || !email.trim()) return;
+    onCreate({
+      id: `pupil-${Date.now()}`,
+      role: 'pupil',
       name: name.trim(),
-      role,
-      email: email.trim() || `${name.trim().toLowerCase().replace(/\s+/g, '.')}@example.co.uk`,
-      password: password.trim() || 'Pass2026!',
-      phone: '07700 900999',
-      postcode
+      email: email.trim().toLowerCase(),
+      password,
+      postcode,
+      homeAddress: homeAddress.trim(),
+      savedLocations: []
     });
+    onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
-        <h3 className="text-lg font-extrabold text-slate-900">Create New Account</h3>
-        <p className="text-xs text-slate-500 mt-0.5">
-          Register a new Pupil or additional Driving Instructor with their own login credentials.
-        </p>
+    <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl border border-slate-200 max-w-md w-full p-6 shadow-2xl space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-black text-slate-900">Create New Pupil Account</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-sm font-bold">
+            ✕
+          </button>
+        </div>
 
-        <form onSubmit={handleSubmit} className="mt-4 space-y-3">
+        <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Account Role</label>
-            <div className="grid grid-cols-2 gap-2">
-              {['pupil', 'instructor'].map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => setRole(r)}
-                  className={`py-2 rounded-xl text-xs font-extrabold uppercase border ${
-                    role === r
-                      ? 'bg-zinc-900 text-white border-zinc-900'
-                      : 'bg-slate-50 text-slate-600 border-slate-200'
-                  }`}
-                >
-                  {r}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Full Name</label>
+            <label className="block text-xs font-bold text-slate-700 mb-1">Pupil Full Name</label>
             <input
               type="text"
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g., Charlie Evans"
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900"
+              placeholder="e.g. Jordan Smith"
+              className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs"
             />
           </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Email Address</label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="charlie@example.co.uk"
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Login Password</label>
-              <input
-                type="text"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-900"
-              />
-            </div>
-          </div>
-
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              Default Pick-Up / Base Postcode Area
-            </label>
+            <label className="block text-xs font-bold text-slate-700 mb-1">Pupil Email</label>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="pupil@example.com"
+              className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">Temporary Password</label>
+            <input
+              type="text"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">Postcode Area</label>
             <select
               value={postcode}
               onChange={(e) => setPostcode(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold bg-white text-slate-900"
+              className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold"
             >
-              {WEST_SUSSEX_LOCATIONS.map((loc) => (
-                <option key={loc.code} value={`${loc.code} - ${loc.name}`}>
-                  {loc.code} — {loc.name}
+              {WEST_SUSSEX_POSTCODES.map((pc) => (
+                <option key={pc} value={pc}>
+                  {pc}
                 </option>
               ))}
             </select>
           </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Home Street Address (Optional)
+            </label>
+            <input
+              type="text"
+              value={homeAddress}
+              onChange={(e) => setHomeAddress(e.target.value)}
+              placeholder="Street & house number"
+              className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs"
+            />
+          </div>
 
-          <div className="pt-2 flex justify-end gap-2">
+          <div className="flex justify-end gap-2 pt-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-100"
+              className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-2 rounded-xl text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
+              className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold"
             >
               Create Account
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// MODAL: GOOGLE CALENDAR GUIDE & CONFIRMATION DIALOG
+// ============================================================================
+function GoogleCalendarGuideModal({ onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl border border-slate-200 max-w-md w-full p-6 shadow-2xl space-y-3">
+        <h3 className="text-base font-black text-slate-900">Calendar Sync Guide</h3>
+        <p className="text-xs text-slate-600 leading-relaxed">
+          Paste your Connecteam or work rota `.ics` link in Settings and click{' '}
+          <strong>Sync Rota Now</strong> (or upload your downloaded `.ics` file) to automatically
+          block out all shifts plus 1 hour before and after each shift.
+        </p>
+        <div className="flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold"
+          >
+            Got It
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmationDialog({ title, message, confirmLabel, onConfirm, onCancel }) {
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl border border-slate-200 max-w-md w-full p-6 shadow-2xl space-y-4">
+        <h3 className="text-base font-black text-slate-900">{title}</h3>
+        <p className="text-xs text-slate-600 leading-relaxed">{message}</p>
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-4 py-2 rounded-xl bg-rose-600 text-white text-xs font-bold"
+          >
+            {confirmLabel}
+          </button>
+        </div>
       </div>
     </div>
   );
