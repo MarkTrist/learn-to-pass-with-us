@@ -685,20 +685,21 @@ export default function App() {
     durationMins,
     customDropoffLoc = null
   ) => {
+    const cleanDate = (targetDate || '').trim();
     const startLimit = timeToMinutes(settings.workStart || '07:00');
     const endLimit = timeToMinutes(settings.workEnd || '18:00');
     const slots = [];
 
-    const [y, m, d] = targetDate.split('-').map(Number);
+    const [y, m, d] = cleanDate.split('-').map(Number);
     const dayOfWeek = new Date(y, m - 1, d).getDay();
     const isWorkingDay = (settings.workDays || [1, 2, 3, 4, 5, 6]).includes(dayOfWeek);
 
     const activeDayLessons = lessons.filter(
-      (l) => l.date === targetDate && (l.status === 'confirmed' || l.status === 'pending')
+      (l) => (l.date || '').trim() === cleanDate && (l.status === 'confirmed' || l.status === 'pending')
     );
 
-    const dayUnavail = unavailability.filter((u) => u.date === targetDate);
-    const dayRota = rotaEvents.filter((r) => r.date === targetDate);
+    const dayUnavail = unavailability.filter((u) => (u.date || '').trim() === cleanDate);
+    const dayRota = rotaEvents.filter((r) => (r.date || '').trim() === cleanDate);
 
     for (let candStart = startLimit; candStart <= endLimit; candStart += 30) {
       const candEnd = candStart + durationMins;
@@ -711,8 +712,8 @@ export default function App() {
 
       if (!conflictReason) {
         for (const u of dayUnavail) {
-          const uStart = u.allDay ? 0 : timeToMinutes(u.startTime);
-          const uEnd = u.allDay ? 24 * 60 : timeToMinutes(u.endTime);
+          const uStart = u.allDay ? 0 : timeToMinutes(u.startTime || '00:00');
+          const uEnd = u.allDay ? 24 * 60 : timeToMinutes(u.endTime || '23:59');
           if (candStart < uEnd && candEnd > uStart) {
             conflictReason = u.reason || 'Instructor unavailable';
             break;
@@ -722,8 +723,10 @@ export default function App() {
 
       if (!conflictReason) {
         for (const r of dayRota) {
-          const rStartBuffered = Math.max(0, timeToMinutes(r.startTime) - 60);
-          const rEndBuffered = Math.min(24 * 60, timeToMinutes(r.endTime) + 60);
+          const rStart = timeToMinutes(r.startTime || '00:00');
+          const rEnd = timeToMinutes(r.endTime || '23:59');
+          const rStartBuffered = rStart === 0 ? 0 : Math.max(0, rStart - 60);
+          const rEndBuffered = rEnd >= 23 * 60 + 59 ? 24 * 60 : Math.min(24 * 60, rEnd + 60);
           if (candStart < rEndBuffered && candEnd > rStartBuffered) {
             conflictReason = 'Unavailable (Work rota shift + 1hr buffer)';
             break;
@@ -1111,6 +1114,8 @@ export default function App() {
             <PupilDashboardView
               currentUser={currentUser}
               lessons={lessons}
+              unavailability={unavailability}
+              rotaEvents={rotaEvents}
               selectedDate={selectedDate}
               onSelectDate={setSelectedDate}
               computeSlotAvailability={computeSlotAvailability}
@@ -1777,6 +1782,8 @@ function InstructorDashboardView({
 function PupilDashboardView({
   currentUser,
   lessons,
+  unavailability,
+  rotaEvents,
   selectedDate,
   onSelectDate,
   computeSlotAvailability,
@@ -1847,7 +1854,16 @@ function PupilDashboardView({
         durationMins,
         dropoffLocation
       ),
-    [selectedDate, currentUser, pickupLocation, dropoffLocation, durationMins, computeSlotAvailability]
+    [
+      selectedDate,
+      currentUser,
+      pickupLocation,
+      dropoffLocation,
+      durationMins,
+      computeSlotAvailability,
+      unavailability,
+      rotaEvents
+    ]
   );
 
   const handleBookSubmit = (e) => {
