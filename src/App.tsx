@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { initializeApp, getApps } from 'firebase/app';
 import {
   getAuth,
@@ -33,8 +33,11 @@ const getEnvVar = (key, fallback = '') => {
   return fallback;
 };
 
+const apiKeyEnv = getEnvVar('VITE_FIREBASE_API_KEY', '');
+const hasRealFirebaseConfig = Boolean(apiKeyEnv && !apiKeyEnv.includes('Dummy'));
+
 const firebaseConfig = {
-  apiKey: getEnvVar('VITE_FIREBASE_API_KEY', 'AIzaSyDummyKeyForLearnToPassWithUs'),
+  apiKey: apiKeyEnv || 'AIzaSyDummyKeyForLearnToPassWithUs',
   authDomain: getEnvVar('VITE_FIREBASE_AUTH_DOMAIN', 'learn-2-pass-with-us.firebaseapp.com'),
   projectId: getEnvVar('VITE_FIREBASE_PROJECT_ID', 'learn-2-pass-with-us'),
   storageBucket: getEnvVar('VITE_FIREBASE_STORAGE_BUCKET', 'learn-2-pass-with-us.appspot.com'),
@@ -46,43 +49,48 @@ let appInstance = null;
 let authInstance = null;
 let dbInstance = null;
 
-try {
-  appInstance = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-  authInstance = getAuth(appInstance);
-  dbInstance = getFirestore(appInstance);
-} catch (err) {
-  console.warn('Firebase initialization warning:', err);
+if (hasRealFirebaseConfig) {
+  try {
+    appInstance = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+    authInstance = getAuth(appInstance);
+    dbInstance = getFirestore(appInstance);
+  } catch (err) {
+    console.warn('Firebase initialization warning:', err);
+  }
 }
 
 const INSTRUCTOR_ACCESS_CODE = 'EN56WXA';
 const SCHOOL_NAME = 'Learn To Pass With Us';
 const CAR_DETAILS = 'Black Volkswagen Golf Mk5 GTI (Manual 6-Speed • EN56 WXA)';
 
-// ---------------------------------------------------------------------------
-// 2. WEST SUSSEX POSTCODE AREAS & TRAVEL MATRIX
-// ---------------------------------------------------------------------------
-const POSTCODE_AREAS = [
-  { code: 'PO19', label: 'PO19 — Chichester North / City Centre', driveMinutesFromBase: 5 },
-  { code: 'PO20', label: 'PO20 — Chichester South / Selsey / Witterings', driveMinutesFromBase: 15 },
-  { code: 'PO18', label: 'PO18 — Bosham / Lavant / Boxgrove', driveMinutesFromBase: 10 },
-  { code: 'PO21', label: 'PO21 — Bognor Regis West / Aldwick / Pagham', driveMinutesFromBase: 15 },
-  { code: 'PO22', label: 'PO22 — Bognor Regis East / Felpham / Barnham', driveMinutesFromBase: 20 },
-  { code: 'BN18', label: 'BN18 — Arundel / Yapton / Walberton', driveMinutesFromBase: 20 },
-  { code: 'BN17', label: 'BN17 — Littlehampton / Wick / Rustington', driveMinutesFromBase: 25 },
-  { code: 'PO10', label: 'PO10 — Emsworth / Southbourne / Westbourne', driveMinutesFromBase: 15 },
-  { code: 'PO9', label: 'PO9 — Havant / Rowland’s Castle', driveMinutesFromBase: 20 },
-  { code: 'PO1-PO6', label: 'PO1–PO6 — Portsmouth / Cosham / Hilsea Test Centre', driveMinutesFromBase: 30 },
-];
+const DEFAULT_TERMS_AND_CONDITIONS = `LEARN TO PASS WITH US — PUPIL TERMS & CONDITIONS
 
-const estimateTravelMinutes = (areaA, areaB) => {
-  if (!areaA || !areaB || areaA === areaB) return 10;
-  const infoA = POSTCODE_AREAS.find((p) => p.code === areaA);
-  const infoB = POSTCODE_AREAS.find((p) => p.code === areaB);
-  if (!infoA || !infoB) return 15;
-  return Math.min(35, Math.max(10, Math.abs(infoA.driveMinutesFromBase - infoB.driveMinutesFromBase) + 10));
-};
+1. PROVISIONAL LICENCE & EYESIGHT REQUIREMENT
+• You must hold a valid UK Provisional (or Full) Driving Licence and present it (along with your DVLA check code if requested) before your first driving lesson.
+• You must be able to read a standard UK vehicle number plate from a distance of 20 metres (or 20.5 metres for old-style plates), wearing glasses or contact lenses if required. You must wear corrective lenses on every lesson if needed to meet this standard.
 
-// ---------------------------------------------------------------------------
+2. 48-HOUR CANCELLATION & RESCHEDULING POLICY
+• A minimum of 48 hours' notice is required to cancel or reschedule a booked driving lesson without charge.
+• Lessons cancelled with less than 48 hours' notice will be charged at the full lesson rate, except in genuine medical emergencies at the instructor's discretion.
+
+3. LESSON PAYMENTS & BLOCK BOOKINGS
+• Single lessons must be paid for in advance or at the start of the lesson.
+• Block booking discounts apply only when paid in full upfront. Unused block hours are refundable minus any lessons already taken (recalculated at the standard single-hour rate).
+
+4. PUNCTUALITY & WAITING TIME
+• Your instructor will wait up to 15 minutes at the agreed pick-up address. If you have not arrived or made contact within 15 minutes, the lesson will be abandoned and charged in full.
+• Any late arrival by the pupil will reduce the remaining lesson duration accordingly.
+
+5. FITNESS TO DRIVE (ALCOHOL, MEDICATION & FATIGUE)
+• You must be legally fit to drive on every lesson. Lessons will be cancelled immediately and charged in full if the instructor suspects you are under the influence of alcohol, illegal drugs, or drowsiness-inducing medication.
+
+6. VEHICLE CARE & DUAL-CONTROL SAFETY
+• Tuition takes place in a dual-control manual vehicle (Volkswagen Golf Mk5 GTI • EN56 WXA). You agree to follow the instructor's safety directions at all times.
+• While the instructor takes reasonable steps to prevent damage, pupils must not act recklessly or intentionally misuse vehicle controls.
+
+7. USE OF INSTRUCTOR'S CAR FOR THE PRACTICAL DRIVING TEST
+• Booking a practical driving test date using the school car must be agreed with your instructor first.
+• The instructor reserves the right to withhold the use of the training vehicle for a practical test if your driving has not yet reached a safe, test-ready standard.`;
 // 3. DVSA 27-TOPIC SYLLABUS
 // ---------------------------------------------------------------------------
 const DVSA_SYLLABUS_TOPICS = [
@@ -145,6 +153,14 @@ const getTodayDateStr = () => {
   ).padStart(2, '0')}`;
 };
 
+const addDaysToDateStr = (dateStr, days) => {
+  const [y, m, d] = normalizeDateStr(dateStr).split('-').map(Number);
+  const dt = new Date(y, m - 1, d + days);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(
+    dt.getDate()
+  ).padStart(2, '0')}`;
+};
+
 const timeToMinutes = (hhmm) => {
   if (!hhmm || typeof hhmm !== 'string') return 0;
   const [h, m] = hhmm.split(':').map((n) => parseInt(n, 10));
@@ -172,17 +188,27 @@ const formatDisplayDate = (dateStr) => {
   });
 };
 
+const formatPickerDisplayDate = (dateStr) => {
+  const norm = normalizeDateStr(dateStr);
+  if (!norm) return '';
+  const [y, m, d] = norm.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  return dt.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+};
+
 const parseICSTimestamp = (val) => {
   if (!val) return null;
   const clean = val.trim();
-  // All-day YYYYMMDD
   if (/^\d{8}$/.test(clean)) {
     const y = parseInt(clean.slice(0, 4), 10);
     const m = parseInt(clean.slice(4, 6), 10) - 1;
     const d = parseInt(clean.slice(6, 8), 10);
     return { date: new Date(y, m, d, 0, 0, 0), isAllDay: true };
   }
-  // YYYYMMDDTHHMMSS(Z)
   const match = clean.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/);
   if (match) {
     const [, ys, ms, ds, hs, mins, secs, z] = match;
@@ -272,18 +298,25 @@ const parseICSFeedEvents = (icsText) => {
         ? endParsed.date
         : new Date(startDt.getTime() + 60 * 60000);
 
-    // Split multi-day / overnight shifts across midnight
     let cursor = new Date(startDt);
     let safety = 0;
     while (cursor < endDt && safety < 14) {
       const dayStart = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate(), 0, 0, 0);
-      const nextDayStart = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1, 0, 0, 0);
+      const nextDayStart = new Date(
+        cursor.getFullYear(),
+        cursor.getMonth(),
+        cursor.getDate() + 1,
+        0,
+        0,
+        0
+      );
       const segStart = cursor > dayStart ? cursor : dayStart;
       const segEnd = endDt < nextDayStart ? endDt : nextDayStart;
 
-      const dStr = `${dayStart.getFullYear()}-${String(dayStart.getMonth() + 1).padStart(2, '0')}-${String(
-        dayStart.getDate()
-      ).padStart(2, '0')}`;
+      const dStr = `${dayStart.getFullYear()}-${String(dayStart.getMonth() + 1).padStart(
+        2,
+        '0'
+      )}-${String(dayStart.getDate()).padStart(2, '0')}`;
       const stStr = `${String(segStart.getHours()).padStart(2, '0')}:${String(
         segStart.getMinutes()
       ).padStart(2, '0')}`;
@@ -310,8 +343,6 @@ const parseICSFeedEvents = (icsText) => {
   return expanded;
 };
 
-// Core availability engine: blocks lessons overlapping confirmed/pending lessons,
-// manual unavailability blocks, and imported rota shifts (with 1h pre & 1h post buffer).
 const computeSlotAvailability = ({
   date,
   durationMinutes = 60,
@@ -327,18 +358,18 @@ const computeSlotAvailability = ({
 
   const firstStart = timeToMinutes(settings.workStart || '07:00');
   const lastStart = timeToMinutes(settings.workEnd || '18:00');
-
-  // Build blocked minute intervals [startMin, endMin] for this date
   const blockedIntervals = [];
 
-  // 1. Existing confirmed & pending lessons (plus travel buffer)
   lessons.forEach((lesson) => {
     if (normalizeDateStr(lesson.date) !== targetDate) return;
     if (lesson.status === 'cancelled' || lesson.status === 'declined') return;
     const lStart = timeToMinutes(lesson.startTime);
     const lEnd = lStart + (Number(lesson.durationMinutes) || 60);
     const bufferBefore = estimateTravelMinutes(dropoffArea, lesson.pickupArea || 'PO19');
-    const bufferAfter = estimateTravelMinutes(lesson.dropoffArea || lesson.pickupArea || 'PO19', pickupArea);
+    const bufferAfter = estimateTravelMinutes(
+      lesson.dropoffArea || lesson.pickupArea || 'PO19',
+      pickupArea
+    );
     blockedIntervals.push({
       start: Math.max(0, lStart - bufferBefore),
       end: Math.min(24 * 60, lEnd + bufferAfter),
@@ -346,7 +377,6 @@ const computeSlotAvailability = ({
     });
   });
 
-  // 2. Manual Unavailability blocks
   unavailability.forEach((block) => {
     if (normalizeDateStr(block.date) !== targetDate) return;
     if (block.allDay) {
@@ -360,7 +390,6 @@ const computeSlotAvailability = ({
     }
   });
 
-  // 3. Imported Work Rota / Calendar shifts (including 60 mins BEFORE & 60 mins AFTER)
   rotaEvents.forEach((ev) => {
     if (normalizeDateStr(ev.date) !== targetDate) return;
     if (ev.allDay) {
@@ -376,16 +405,10 @@ const computeSlotAvailability = ({
     }
   });
 
-  // Also check if a shift ending early next morning requires a 1h buffer or late-night shift on previous day spills over
-  const [yy, mm, dd] = targetDate.split('-').map(Number);
-  const prevDt = new Date(yy, mm - 1, dd - 1);
-  const prevDateStr = `${prevDt.getFullYear()}-${String(prevDt.getMonth() + 1).padStart(2, '0')}-${String(
-    prevDt.getDate()
-  ).padStart(2, '0')}`;
+  const prevDateStr = addDaysToDateStr(targetDate, -1);
   rotaEvents.forEach((ev) => {
     if (normalizeDateStr(ev.date) !== prevDateStr || ev.allDay) return;
     const e = timeToMinutes(ev.endTime || '00:00');
-    // If shift ended after 23:00 the previous night, its 60-minute post-shift buffer extends into today
     if (e > 23 * 60) {
       const spillover = e + 60 - 24 * 60;
       if (spillover > 0) {
@@ -398,21 +421,6 @@ const computeSlotAvailability = ({
     }
   });
 
-  // 4. Recurring External Shift Days (if configured in Settings)
-  if (settings.externalShiftEnabled && Array.isArray(settings.externalShiftDays)) {
-    const dayOfWeek = new Date(yy, mm - 1, dd).getDay();
-    if (settings.externalShiftDays.includes(dayOfWeek)) {
-      const s = timeToMinutes(settings.externalShiftStart || '06:00');
-      const e = timeToMinutes(settings.externalShiftEnd || '17:00');
-      blockedIntervals.push({
-        start: Math.max(0, s - 60),
-        end: Math.min(24 * 60, e + 60),
-        reason: 'Recurring Shift (+1h buffer)',
-      });
-    }
-  }
-
-  // Generate 30-minute start slots between firstStart (07:00) and lastStart (18:00)
   const slots = [];
   const now = new Date();
   const todayStr = getTodayDateStr();
@@ -433,7 +441,6 @@ const computeSlotAvailability = ({
 
     if (available) {
       for (const blk of blockedIntervals) {
-        // Strict overlap check: [startMin, endMin) intersects [blk.start, blk.end)
         if (startMin < blk.end && endMin > blk.start) {
           available = false;
           conflictReason = blk.reason;
@@ -453,7 +460,6 @@ const computeSlotAvailability = ({
   return slots;
 };
 
-// Calendar Export Helpers (.ics & Google Calendar Quick Link)
 const buildGoogleCalendarUrl = (lesson) => {
   const dateCompact = normalizeDateStr(lesson.date).replace(/-/g, '');
   const startMin = timeToMinutes(lesson.startTime);
@@ -517,7 +523,192 @@ const downloadLessonsICS = (lessonsList, filename = 'learn-to-pass-lessons.ics')
 };
 
 // ---------------------------------------------------------------------------
-// 5. VEHICLE BADGE COMPONENT
+// 5. CUSTOM POPUP CALENDAR DATE INPUT (WITH CALENDAR ICON ON RIGHT)
+// ---------------------------------------------------------------------------
+function CalendarDateInput({
+  value,
+  onChange,
+  minDate = '',
+  placeholder = 'Select date...',
+  allowClear = false,
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef(null);
+
+  const normalizedVal = normalizeDateStr(value);
+  const normalizedMin = normalizeDateStr(minDate);
+
+  const [viewMonth, setViewMonth] = useState(() => {
+    if (normalizedVal) {
+      const [y, m] = normalizedVal.split('-').map(Number);
+      return new Date(y, m - 1, 1);
+    }
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+
+  useEffect(() => {
+    if (normalizedVal) {
+      const [y, m] = normalizedVal.split('-').map(Number);
+      setViewMonth(new Date(y, m - 1, 1));
+    }
+  }, [normalizedVal]);
+
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    if (open) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [open]);
+
+  const calendarDays = useMemo(() => {
+    const year = viewMonth.getFullYear();
+    const month = viewMonth.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const startOffset = (firstDay.getDay() + 6) % 7; // Monday = 0
+    const startDate = new Date(year, month, 1 - startOffset);
+
+    const list = [];
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + i);
+      const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+        d.getDate()
+      ).padStart(2, '0')}`;
+      list.push({
+        dateStr: dStr,
+        dayNum: d.getDate(),
+        inMonth: d.getMonth() === month,
+        disabled: Boolean(normalizedMin && dStr < normalizedMin),
+      });
+    }
+    return list;
+  }, [viewMonth, normalizedMin]);
+
+  return (
+    <div ref={wrapperRef} className="relative w-full">
+      <div
+        onClick={() => setOpen((prev) => !prev)}
+        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm flex items-center justify-between gap-2 cursor-pointer hover:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500 transition-colors"
+      >
+        <span className={normalizedVal ? 'font-medium text-slate-900' : 'text-slate-400'}>
+          {normalizedVal ? formatPickerDisplayDate(normalizedVal) : placeholder}
+        </span>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          {allowClear && normalizedVal && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange('');
+                setOpen(false);
+              }}
+              title="Clear date"
+              className="text-xs text-slate-400 hover:text-red-600 font-bold px-1"
+            >
+              ✕
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen((prev) => !prev);
+            }}
+            aria-label="Open calendar"
+            className="text-slate-500 hover:text-emerald-600 transition-colors"
+          >
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              viewBox="0 0 24 24"
+            >
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+              <line x1="16" y1="2" x2="16" y2="6" />
+              <line x1="8" y1="2" x2="8" y2="6" />
+              <line x1="3" y1="10" x2="21" y2="10" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {open && (
+        <div className="absolute left-0 mt-2 w-72 bg-white rounded-2xl border border-slate-200 shadow-xl p-3.5 z-50">
+          <div className="flex items-center justify-between mb-2.5">
+            <button
+              type="button"
+              onClick={() =>
+                setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1))
+              }
+              className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-700 font-bold flex items-center justify-center"
+            >
+              ‹
+            </button>
+            <span className="text-xs font-extrabold text-slate-900">
+              {viewMonth.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}
+            </span>
+            <button
+              type="button"
+              onClick={() =>
+                setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1))
+              }
+              className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-700 font-bold flex items-center justify-center"
+            >
+              ›
+            </button>
+          </div>
+
+          <div className="grid grid-cols-7 text-center text-[10px] font-bold text-slate-400 mb-1">
+            {['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map((d) => (
+              <div key={d}>{d}</div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-7 gap-0.5">
+            {calendarDays.map((day) => {
+              const isSelected = day.dateStr === normalizedVal;
+              const isToday = day.dateStr === getTodayDateStr();
+              return (
+                <button
+                  key={day.dateStr}
+                  type="button"
+                  disabled={day.disabled}
+                  onClick={() => {
+                    onChange(day.dateStr);
+                    setOpen(false);
+                  }}
+                  className={`h-8 rounded-lg text-xs font-semibold transition-colors ${
+                    day.disabled
+                      ? 'text-slate-300 cursor-not-allowed'
+                      : isSelected
+                      ? 'bg-emerald-600 text-white font-bold'
+                      : isToday
+                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-300 font-bold'
+                      : day.inMonth
+                      ? 'text-slate-800 hover:bg-slate-100'
+                      : 'text-slate-400 hover:bg-slate-50'
+                  }`}
+                >
+                  {day.dayNum}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 6. VEHICLE BADGE COMPONENT
 // ---------------------------------------------------------------------------
 function VWGolfGTIBadge() {
   return (
@@ -539,7 +730,95 @@ function VWGolfGTIBadge() {
 }
 
 // ---------------------------------------------------------------------------
-// 6. MAIN APPLICATION COMPONENT
+// 7. POST-SIGNUP TERMS & CONDITIONS SPLASH SCREEN
+// ---------------------------------------------------------------------------
+function TermsSplashModal({ pupilName, termsText, onAcceptTerms, onSignOut }) {
+  const [checked, setChecked] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const handleConfirm = async (e) => {
+    e.preventDefault();
+    if (!checked) return;
+    setSaving(true);
+    try {
+      await onAcceptTerms();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-900/90 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="max-w-2xl w-full bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        {/* Header */}
+        <div className="bg-amber-600 text-white px-6 py-5 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-slate-950 text-red-500 font-black text-xl flex items-center justify-center border border-slate-700">
+              L
+            </div>
+            <div>
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-amber-100">
+                Welcome to {SCHOOL_NAME}
+              </span>
+              <h2 className="text-lg sm:text-xl font-black leading-tight">
+                Pupil Terms &amp; Conditions
+              </h2>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onSignOut}
+            className="px-3 py-1.5 rounded-xl bg-slate-950/25 hover:bg-slate-950/40 text-white text-xs font-bold"
+          >
+            Sign out
+          </button>
+        </div>
+
+        {/* Intro */}
+        <div className="px-6 pt-5 pb-3">
+          <p className="text-sm text-slate-700">
+            Hi <strong>{pupilName}</strong>, before accessing your pupil booking portal and
+            syllabus tracker, please read and accept our driving tuition Terms &amp; Conditions
+            below.
+          </p>
+        </div>
+
+        {/* Scrollable Terms Box */}
+        <div className="px-6 flex-1 overflow-hidden flex flex-col">
+          <div className="flex-1 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5 text-xs sm:text-sm text-slate-700 whitespace-pre-line leading-relaxed max-h-[45vh]">
+            {termsText || DEFAULT_TERMS_AND_CONDITIONS}
+          </div>
+        </div>
+
+        {/* Acceptance Form */}
+        <form onSubmit={handleConfirm} className="p-6 space-y-4 border-t border-slate-100 mt-4">
+          <label className="flex items-start gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={(e) => setChecked(e.target.checked)}
+              className="mt-0.5 w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+            />
+            <span className="text-xs sm:text-sm font-bold text-slate-800">
+              I have read and agree to the {SCHOOL_NAME} Terms &amp; Conditions.
+            </span>
+          </label>
+
+          <button
+            type="submit"
+            disabled={!checked || saving}
+            className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-sm transition-colors disabled:opacity-40"
+          >
+            {saving ? 'Saving Acceptance...' : 'Accept & Continue to Pupil Portal'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 8. MAIN APPLICATION COMPONENT
 // ---------------------------------------------------------------------------
 export default function App() {
   const [firebaseReady, setFirebaseReady] = useState(false);
@@ -553,14 +832,11 @@ export default function App() {
     workEnd: '18:00',
     rotaFeedUrl: '',
     lastRotaSync: '',
-    externalShiftEnabled: false,
-    externalShiftStart: '06:00',
-    externalShiftEnd: '17:00',
-    externalShiftDays: [],
     autoReminderEnabled: true,
     emailjsServiceId: '',
     emailjsTemplateId: '',
     emailjsPublicKey: '',
+    termsAndConditions: DEFAULT_TERMS_AND_CONDITIONS,
   });
 
   const [currentUserId, setCurrentUserId] = useState(() => {
@@ -579,9 +855,8 @@ export default function App() {
     setTimeout(() => setToastMsg(''), 4000);
   };
 
-  // Firebase Auth & Real-Time Firestore Listeners
   useEffect(() => {
-    if (!authInstance || !dbInstance) return;
+    if (!hasRealFirebaseConfig || !authInstance || !dbInstance) return;
 
     signInAnonymously(authInstance).catch((err) =>
       console.warn('Anonymous auth warning:', err)
@@ -635,10 +910,9 @@ export default function App() {
     [accounts, currentUserId]
   );
 
-  // Automatic 24-Hour Reminder Engine (In-App + Optional EmailJS)
+  // Automatic 24-Hour Reminder Engine
   useEffect(() => {
-    if (!firebaseReady || !dbInstance || !schoolSettings.autoReminderEnabled) return;
-    if (lessons.length === 0 || accounts.length === 0) return;
+    if (!schoolSettings.autoReminderEnabled || lessons.length === 0 || accounts.length === 0) return;
 
     const now = Date.now();
     const twentyFourHoursMs = 24 * 60 * 60 * 1000;
@@ -653,61 +927,74 @@ export default function App() {
       const diff = lessonStartMs - now;
 
       if (diff > 0 && diff <= twentyFourHoursMs) {
-        try {
+        const reminderText = `24-Hour Reminder: Your ${
+          lesson.durationMinutes || 60
+        }min driving lesson is tomorrow (${formatDisplayDate(lesson.date)}) at ${
+          lesson.startTime
+        }. Pick-up: ${
+          lesson.pickupLocation || lesson.pickupArea
+        }. Please tap "Confirm Still Attending" on your Lessons tab.`;
+
+        if (hasRealFirebaseConfig && dbInstance) {
           await updateDoc(doc(dbInstance, 'lessons', lesson.id), {
             reminderSent: true,
             reminderSentAt: new Date().toISOString(),
           });
-
-          const pupil = accounts.find((a) => a.id === lesson.pupilId);
           const instructor = accounts.find((a) => a.role === 'instructor');
-
           await addDoc(collection(dbInstance, 'messages'), {
             senderId: instructor?.id || 'system',
             senderName: SCHOOL_NAME,
             recipientId: lesson.pupilId,
-            text: `24-Hour Reminder: Your ${lesson.durationMinutes || 60}min driving lesson is tomorrow (${formatDisplayDate(
-              lesson.date
-            )}) at ${lesson.startTime}. Pick-up: ${
-              lesson.pickupLocation || lesson.pickupArea
-            }. Please tap "Confirm Still Attending" on your Lessons tab.`,
+            text: reminderText,
             createdAt: new Date().toISOString(),
           });
+        } else {
+          setLessons((prev) =>
+            prev.map((l) => (l.id === lesson.id ? { ...l, reminderSent: true } : l))
+          );
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `msg-${Date.now()}`,
+              senderId: 'system',
+              senderName: SCHOOL_NAME,
+              recipientId: lesson.pupilId,
+              text: reminderText,
+              createdAt: new Date().toISOString(),
+            },
+          ]);
+        }
 
-          // Optional EmailJS delivery
-          if (
-            pupil?.email &&
-            schoolSettings.emailjsServiceId &&
-            schoolSettings.emailjsTemplateId &&
-            schoolSettings.emailjsPublicKey
-          ) {
-            fetch('https://api.emailjs.com/api/v1.0/email/send', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                service_id: schoolSettings.emailjsServiceId,
-                template_id: schoolSettings.emailjsTemplateId,
-                user_id: schoolSettings.emailjsPublicKey,
-                template_params: {
-                  to_email: pupil.email,
-                  to_name: pupil.name,
-                  school_name: SCHOOL_NAME,
-                  lesson_date: formatDisplayDate(lesson.date),
-                  lesson_time: lesson.startTime,
-                  pickup_location: lesson.pickupLocation || lesson.pickupArea,
-                  lesson_focus: lesson.focusTopic || 'Manual Driving Lesson',
-                },
-              }),
-            }).catch((err) => console.warn('EmailJS warning:', err));
-          }
-        } catch (err) {
-          console.warn('Auto reminder error:', err);
+        const pupil = accounts.find((a) => a.id === lesson.pupilId);
+        if (
+          pupil?.email &&
+          schoolSettings.emailjsServiceId &&
+          schoolSettings.emailjsTemplateId &&
+          schoolSettings.emailjsPublicKey
+        ) {
+          fetch('https://api.emailjs.com/api/v1.0/email/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              service_id: schoolSettings.emailjsServiceId,
+              template_id: schoolSettings.emailjsTemplateId,
+              user_id: schoolSettings.emailjsPublicKey,
+              template_params: {
+                to_email: pupil.email,
+                to_name: pupil.name,
+                school_name: SCHOOL_NAME,
+                lesson_date: formatDisplayDate(lesson.date),
+                lesson_time: lesson.startTime,
+                pickup_location: lesson.pickupLocation || lesson.pickupArea,
+                lesson_focus: lesson.focusTopic || 'Manual Driving Lesson',
+              },
+            }),
+          }).catch((err) => console.warn('EmailJS warning:', err));
         }
       }
     });
-  }, [firebaseReady, lessons, accounts, schoolSettings]);
+  }, [lessons, accounts, schoolSettings]);
 
-  // Auth Handlers
   const handleLogin = (email, password) => {
     const match = accounts.find(
       (a) =>
@@ -746,19 +1033,48 @@ export default function App() {
       postcodeArea: formData.postcodeArea || 'PO19',
       homeAddress: formData.homeAddress || '',
       savedLocations: [],
+      theoryTestPassedDate: '',
+      drivingTestScheduledDate: '',
       syllabusProgress: {},
       instructorNotes: '',
+      termsAccepted: formData.role === 'instructor',
+      termsAcceptedAt: formData.role === 'instructor' ? new Date().toISOString() : '',
       createdAt: new Date().toISOString(),
     };
 
-    const docRef = await addDoc(collection(dbInstance, 'accounts'), newAccount);
-    setCurrentUserId(docRef.id);
+    let assignedId = `acc-${Date.now()}`;
+    if (hasRealFirebaseConfig && dbInstance) {
+      const docRef = await addDoc(collection(dbInstance, 'accounts'), newAccount);
+      assignedId = docRef.id;
+    } else {
+      setAccounts((prev) => [...prev, { id: assignedId, ...newAccount }]);
+    }
+
+    setCurrentUserId(assignedId);
     setActiveTab('dashboard');
     try {
-      localStorage.setItem('ltpwu_user_id', docRef.id);
+      localStorage.setItem('ltpwu_user_id', assignedId);
     } catch (_) {}
-    showToast(`Welcome to ${SCHOOL_NAME}, ${newAccount.name}!`);
+    if (formData.role === 'instructor') {
+      showToast(`Welcome to ${SCHOOL_NAME}, ${newAccount.name}!`);
+    }
     return '';
+  };
+
+  const handleAcceptTerms = async () => {
+    if (!currentUser) return;
+    const updates = {
+      termsAccepted: true,
+      termsAcceptedAt: new Date().toISOString(),
+    };
+    if (hasRealFirebaseConfig && dbInstance) {
+      await updateDoc(doc(dbInstance, 'accounts', currentUser.id), updates);
+    } else {
+      setAccounts((prev) =>
+        prev.map((a) => (a.id === currentUser.id ? { ...a, ...updates } : a))
+      );
+    }
+    showToast(`Terms accepted — welcome to ${SCHOOL_NAME}, ${currentUser.name}!`);
   };
 
   const handleLogout = () => {
@@ -769,7 +1085,6 @@ export default function App() {
     } catch (_) {}
   };
 
-  // Lesson Handlers
   const handleCreateBookingRequest = async (bookingData) => {
     const newLesson = {
       pupilId: currentUser.id,
@@ -779,7 +1094,8 @@ export default function App() {
       startTime: bookingData.startTime,
       durationMinutes: Number(bookingData.durationMinutes) || 60,
       pickupArea: bookingData.pickupArea || currentUser.postcodeArea || 'PO19',
-      pickupLocation: bookingData.pickupLocation || currentUser.homeAddress || bookingData.pickupArea,
+      pickupLocation:
+        bookingData.pickupLocation || currentUser.homeAddress || bookingData.pickupArea,
       dropoffArea: bookingData.dropoffArea || bookingData.pickupArea || 'PO19',
       dropoffLocation:
         bookingData.dropoffLocation || bookingData.pickupLocation || bookingData.pickupArea,
@@ -790,58 +1106,113 @@ export default function App() {
       createdAt: new Date().toISOString(),
     };
 
-    await addDoc(collection(dbInstance, 'lessons'), newLesson);
+    if (hasRealFirebaseConfig && dbInstance) {
+      await addDoc(collection(dbInstance, 'lessons'), newLesson);
+    } else {
+      setLessons((prev) => [...prev, { id: `lesson-${Date.now()}`, ...newLesson }]);
+    }
     showToast('Lesson request sent! Mark will confirm shortly.');
   };
 
   const handleUpdateLessonStatus = async (lessonId, status) => {
-    await updateDoc(doc(dbInstance, 'lessons', lessonId), { status });
+    if (hasRealFirebaseConfig && dbInstance) {
+      await updateDoc(doc(dbInstance, 'lessons', lessonId), { status });
+    } else {
+      setLessons((prev) => prev.map((l) => (l.id === lessonId ? { ...l, status } : l)));
+    }
     showToast(`Lesson marked as ${status}.`);
   };
 
   const handleConfirm24hAttendance = async (lessonId) => {
-    await updateDoc(doc(dbInstance, 'lessons', lessonId), { pupilConfirmed24h: true });
+    if (hasRealFirebaseConfig && dbInstance) {
+      await updateDoc(doc(dbInstance, 'lessons', lessonId), { pupilConfirmed24h: true });
+    } else {
+      setLessons((prev) =>
+        prev.map((l) => (l.id === lessonId ? { ...l, pupilConfirmed24h: true } : l))
+      );
+    }
     showToast('Attendance confirmed for your upcoming lesson!');
   };
 
-  // Account & Address Handlers
   const handleUpdateAccount = async (accountId, updates) => {
-    await updateDoc(doc(dbInstance, 'accounts', accountId), updates);
+    if (hasRealFirebaseConfig && dbInstance) {
+      await updateDoc(doc(dbInstance, 'accounts', accountId), updates);
+    } else {
+      setAccounts((prev) =>
+        prev.map((a) => (a.id === accountId ? { ...a, ...updates } : a))
+      );
+    }
     showToast('Account & address details saved.');
   };
 
   const handleDeleteAccount = async (accountId) => {
-    await deleteDoc(doc(dbInstance, 'accounts', accountId));
+    if (hasRealFirebaseConfig && dbInstance) {
+      await deleteDoc(doc(dbInstance, 'accounts', accountId));
+    } else {
+      setAccounts((prev) => prev.filter((a) => a.id !== accountId));
+    }
     showToast('Account deleted permanently.');
   };
 
-  // Syllabus Handlers
   const handleUpdateTopicStatus = async (pupilId, topicId, nextStatus) => {
     const pupil = accounts.find((a) => a.id === pupilId);
     if (!pupil) return;
     const updatedProgress = { ...(pupil.syllabusProgress || {}), [topicId]: nextStatus };
-    await updateDoc(doc(dbInstance, 'accounts', pupilId), { syllabusProgress: updatedProgress });
+    if (hasRealFirebaseConfig && dbInstance) {
+      await updateDoc(doc(dbInstance, 'accounts', pupilId), { syllabusProgress: updatedProgress });
+    } else {
+      setAccounts((prev) =>
+        prev.map((a) => (a.id === pupilId ? { ...a, syllabusProgress: updatedProgress } : a))
+      );
+    }
   };
 
   const handleUpdateInstructorNotes = async (pupilId, notes) => {
-    await updateDoc(doc(dbInstance, 'accounts', pupilId), { instructorNotes: notes });
+    if (hasRealFirebaseConfig && dbInstance) {
+      await updateDoc(doc(dbInstance, 'accounts', pupilId), { instructorNotes: notes });
+    } else {
+      setAccounts((prev) =>
+        prev.map((a) => (a.id === pupilId ? { ...a, instructorNotes: notes } : a))
+      );
+    }
     showToast('Instructor notes saved.');
   };
 
-  // Messaging Handler
+  const handleUpdatePupilTestDates = async (pupilId, testDates) => {
+    if (hasRealFirebaseConfig && dbInstance) {
+      await updateDoc(doc(dbInstance, 'accounts', pupilId), testDates);
+    } else {
+      setAccounts((prev) =>
+        prev.map((a) => (a.id === pupilId ? { ...a, ...testDates } : a))
+      );
+    }
+    showToast('Theory & Driving Test dates saved.');
+  };
+
   const handleSendMessage = async (recipientId, text) => {
     if (!text.trim() || !currentUser) return;
-    await addDoc(collection(dbInstance, 'messages'), {
+    const msgObj = {
       senderId: currentUser.id,
       senderName: currentUser.name,
       recipientId,
       text: text.trim(),
       createdAt: new Date().toISOString(),
-    });
+    };
+    if (hasRealFirebaseConfig && dbInstance) {
+      await addDoc(collection(dbInstance, 'messages'), msgObj);
+    } else {
+      setMessages((prev) => [...prev, { id: `msg-${Date.now()}`, ...msgObj }]);
+    }
   };
 
-  // Unavailability & Settings Handlers
-  const handleAddUnavailabilityRange = async ({ fromDate, toDate, allDay, startTime, endTime, reason }) => {
+  const handleAddUnavailabilityRange = async ({
+    fromDate,
+    toDate,
+    allDay,
+    startTime,
+    endTime,
+    reason,
+  }) => {
     const startNorm = normalizeDateStr(fromDate);
     const endNorm = normalizeDateStr(toDate || fromDate);
     if (!startNorm) return;
@@ -852,49 +1223,76 @@ export default function App() {
     const endDt = new Date(ey, em - 1, ed);
 
     let count = 0;
+    const newBlocks = [];
     while (cursor <= endDt && count < 90) {
-      const dStr = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(
-        cursor.getDate()
-      ).padStart(2, '0')}`;
-      await addDoc(collection(dbInstance, 'unavailability'), {
+      const dStr = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(
+        2,
+        '0'
+      )}-${String(cursor.getDate()).padStart(2, '0')}`;
+      const block = {
         date: dStr,
         allDay: Boolean(allDay),
         startTime: allDay ? '00:00' : startTime || '07:00',
         endTime: allDay ? '23:59' : endTime || '18:00',
         reason: reason || 'Unavailable',
-      });
+      };
+      if (hasRealFirebaseConfig && dbInstance) {
+        await addDoc(collection(dbInstance, 'unavailability'), block);
+      } else {
+        newBlocks.push({ id: `unavail-${Date.now()}-${count}`, ...block });
+      }
       cursor.setDate(cursor.getDate() + 1);
       count++;
+    }
+    if (!hasRealFirebaseConfig) {
+      setUnavailability((prev) => [...prev, ...newBlocks]);
     }
     showToast(`Blocked ${count} day(s) on your calendar.`);
   };
 
   const handleDeleteUnavailability = async (blockId) => {
-    await deleteDoc(doc(dbInstance, 'unavailability', blockId));
+    if (hasRealFirebaseConfig && dbInstance) {
+      await deleteDoc(doc(dbInstance, 'unavailability', blockId));
+    } else {
+      setUnavailability((prev) => prev.filter((u) => u.id !== blockId));
+    }
     showToast('Unavailability block removed.');
   };
 
   const handleSaveSettings = async (newSettings) => {
-    await setDoc(doc(dbInstance, 'settings', 'general'), newSettings, { merge: true });
+    if (hasRealFirebaseConfig && dbInstance) {
+      await setDoc(doc(dbInstance, 'settings', 'general'), newSettings, { merge: true });
+    } else {
+      setSchoolSettings((prev) => ({ ...prev, ...newSettings }));
+    }
     showToast('Settings & calendar rules saved.');
   };
 
   const handleImportRotaEvents = async (parsedList, feedUrl = '') => {
-    // Replace previous imported rota events cleanly
-    for (const existing of rotaEvents) {
-      await deleteDoc(doc(dbInstance, 'rotaEvents', existing.id));
+    const syncStamp = new Date().toLocaleString('en-GB');
+    if (hasRealFirebaseConfig && dbInstance) {
+      for (const existing of rotaEvents) {
+        await deleteDoc(doc(dbInstance, 'rotaEvents', existing.id));
+      }
+      for (const ev of parsedList) {
+        await addDoc(collection(dbInstance, 'rotaEvents'), ev);
+      }
+      await setDoc(
+        doc(dbInstance, 'settings', 'general'),
+        {
+          rotaFeedUrl: feedUrl || schoolSettings.rotaFeedUrl,
+          lastRotaSync: syncStamp,
+        },
+        { merge: true }
+      );
+    } else {
+      setRotaEvents(parsedList);
+      setSchoolSettings((prev) => ({
+        ...prev,
+        rotaFeedUrl: feedUrl || prev.rotaFeedUrl,
+        lastRotaSync: syncStamp,
+      }));
     }
-    for (const ev of parsedList) {
-      await addDoc(collection(dbInstance, 'rotaEvents'), ev);
-    }
-    await setDoc(
-      doc(dbInstance, 'settings', 'general'),
-      {
-        rotaFeedUrl: feedUrl || schoolSettings.rotaFeedUrl,
-        lastRotaSync: new Date().toLocaleString('en-GB'),
-      },
-      { merge: true }
-    );
     showToast(`Synced ${parsedList.length} work rota shift block(s) (with 1h pre/post buffer).`);
   };
 
@@ -903,13 +1301,24 @@ export default function App() {
     setActiveTab('messages');
   };
 
-  // Render Auth Screen if not signed in
   if (!currentUser) {
     return (
       <AuthScreen
         firebaseReady={firebaseReady}
         onLogin={handleLogin}
         onRegister={handleRegister}
+      />
+    );
+  }
+
+  // Mandatory Post-Signup Terms & Conditions Splash Screen for Pupils
+  if (currentUser.role === 'pupil' && !currentUser.termsAccepted) {
+    return (
+      <TermsSplashModal
+        pupilName={currentUser.name}
+        termsText={schoolSettings.termsAndConditions || DEFAULT_TERMS_AND_CONDITIONS}
+        onAcceptTerms={handleAcceptTerms}
+        onSignOut={handleLogout}
       />
     );
   }
@@ -931,10 +1340,8 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
-      {/* Top Header Bar */}
       <header className="bg-amber-600 text-white shadow-md sticky top-0 z-30">
         <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-          {/* Brand Logo */}
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-slate-950 text-red-500 font-black text-lg flex items-center justify-center border border-slate-700 shadow-inner">
               L
@@ -949,7 +1356,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Primary Navigation Links */}
           <nav className="flex items-center gap-1 sm:gap-2">
             {navItems.map((item) => {
               const active = activeTab === item.id;
@@ -970,7 +1376,6 @@ export default function App() {
             })}
           </nav>
 
-          {/* Top-Right Settings Cog & Sign Out */}
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -1014,14 +1419,12 @@ export default function App() {
         </div>
       </header>
 
-      {/* Toast Notification */}
       {toastMsg && (
         <div className="fixed bottom-5 right-5 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-lg border border-slate-700 text-sm font-medium">
           {toastMsg}
         </div>
       )}
 
-      {/* Main Content Area */}
       <main className="max-w-6xl w-full mx-auto px-4 py-6 flex-1">
         {activeTab === 'dashboard' && isInstructor && (
           <InstructorDashboardView
@@ -1060,6 +1463,7 @@ export default function App() {
             lessons={lessons}
             onUpdateTopicStatus={handleUpdateTopicStatus}
             onUpdateInstructorNotes={handleUpdateInstructorNotes}
+            onUpdatePupilTestDates={handleUpdatePupilTestDates}
             onMessagePupil={handleOpenPupilMessages}
           />
         )}
@@ -1071,6 +1475,7 @@ export default function App() {
             forcedPupilId={currentUser.id}
             onUpdateTopicStatus={handleUpdateTopicStatus}
             onUpdateInstructorNotes={handleUpdateInstructorNotes}
+            onUpdatePupilTestDates={handleUpdatePupilTestDates}
           />
         )}
 
@@ -1106,10 +1511,10 @@ export default function App() {
 }
 
 // ---------------------------------------------------------------------------
-// 7. LIGHT-THEME AUTH SCREEN WITH CAPS LOCK DETECTION
+// 9. LIGHT-THEME AUTH SCREEN WITH CAPS LOCK DETECTION
 // ---------------------------------------------------------------------------
 function AuthScreen({ firebaseReady, onLogin, onRegister }) {
-  const [mode, setMode] = useState('login'); // 'login' | 'signup'
+  const [mode, setMode] = useState('login');
   const [role, setRole] = useState('pupil');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -1187,7 +1592,6 @@ function AuthScreen({ firebaseReady, onLogin, onRegister }) {
       </header>
 
       <div className="max-w-5xl w-full mx-auto px-4 py-10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
-        {/* Left Info Column */}
         <div className="lg:col-span-6 space-y-5">
           <span className="inline-block px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800">
             DVSA Approved Driving Instruction
@@ -1203,7 +1607,6 @@ function AuthScreen({ firebaseReady, onLogin, onRegister }) {
           <VWGolfGTIBadge />
         </div>
 
-        {/* Right Light Form Card */}
         <div className="lg:col-span-6 bg-white rounded-3xl border border-slate-200 shadow-lg p-6 sm:p-8">
           <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-2xl mb-6">
             <button
@@ -1406,7 +1809,7 @@ function AuthScreen({ firebaseReady, onLogin, onRegister }) {
 }
 
 // ---------------------------------------------------------------------------
-// 8. INSTRUCTOR HOME DASHBOARD
+// 10. INSTRUCTOR HOME DASHBOARD
 // ---------------------------------------------------------------------------
 function InstructorDashboardView({ lessons, accounts, onUpdateLessonStatus }) {
   const pendingLessons = useMemo(
@@ -1426,7 +1829,6 @@ function InstructorDashboardView({ lessons, accounts, onUpdateLessonStatus }) {
 
   return (
     <div className="space-y-6">
-      {/* Top KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
           <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
@@ -1450,7 +1852,6 @@ function InstructorDashboardView({ lessons, accounts, onUpdateLessonStatus }) {
         </div>
       </div>
 
-      {/* Pending Lesson Requests */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
         <h2 className="text-lg font-bold text-slate-900 mb-4">Pending Lesson Requests</h2>
         {pendingLessons.length === 0 ? (
@@ -1498,7 +1899,6 @@ function InstructorDashboardView({ lessons, accounts, onUpdateLessonStatus }) {
         )}
       </div>
 
-      {/* Upcoming Confirmed Schedule */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-slate-900">Upcoming Confirmed Lessons</h2>
@@ -1568,7 +1968,7 @@ function InstructorDashboardView({ lessons, accounts, onUpdateLessonStatus }) {
 }
 
 // ---------------------------------------------------------------------------
-// 9. PUPIL LESSONS & BOOKING DASHBOARD
+// 11. PUPIL LESSONS & BOOKING DASHBOARD
 // ---------------------------------------------------------------------------
 function PupilDashboardView({
   currentUser,
@@ -1585,7 +1985,6 @@ function PupilDashboardView({
   const [selectedTime, setSelectedTime] = useState('');
   const [focusTopic, setFocusTopic] = useState('Junctions, Roundabouts & Road Positioning');
 
-  // Build dropdown choices from pupil's saved home address, saved alternative locations, and postcode areas
   const locationOptions = useMemo(() => {
     const opts = [];
     if (currentUser.homeAddress && currentUser.homeAddress.trim()) {
@@ -1690,7 +2089,6 @@ function PupilDashboardView({
 
   return (
     <div className="space-y-6">
-      {/* 24-Hour Attendance Confirmation Banner */}
       {lessonsNeeding24hConfirm.map((l) => (
         <div
           key={l.id}
@@ -1715,7 +2113,6 @@ function PupilDashboardView({
         </div>
       ))}
 
-      {/* Helpful Note Pointing to Settings for Addresses & Calendar Sync */}
       <div className="bg-sky-50 border border-sky-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <p className="text-xs sm:text-sm text-sky-900">
           <strong>Tip:</strong> Need to save your full home address, add alternative pick-up/drop-off
@@ -1731,22 +2128,19 @@ function PupilDashboardView({
         </button>
       </div>
 
-      {/* Book a Lesson Form */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
         <h2 className="text-lg font-bold text-slate-900 mb-4">Request a Driving Lesson</h2>
         <form onSubmit={handleBookSubmit} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">Lesson Date</label>
-              <input
-                type="date"
-                min={getTodayDateStr()}
+              <CalendarDateInput
                 value={selectedDate}
-                onChange={(e) => {
-                  setSelectedDate(e.target.value);
+                minDate={getTodayDateStr()}
+                onChange={(newDate) => {
+                  setSelectedDate(newDate);
                   setSelectedTime('');
                 }}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 [color-scheme:light] text-sm"
               />
             </div>
 
@@ -1820,7 +2214,6 @@ function PupilDashboardView({
             />
           </div>
 
-          {/* Available Time Slot Picker */}
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-2">
               Available Start Times on {formatDisplayDate(selectedDate)} (07:00 – 18:00)
@@ -1861,7 +2254,6 @@ function PupilDashboardView({
         </form>
       </div>
 
-      {/* Pupil's Lessons List */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
         <h2 className="text-lg font-bold text-slate-900 mb-4">My Booked &amp; Requested Lessons</h2>
         {myLessons.length === 0 ? (
@@ -1916,7 +2308,7 @@ function PupilDashboardView({
 }
 
 // ---------------------------------------------------------------------------
-// 10. GOOGLE CALENDAR-STYLE DIARY VIEW (MONTH / WEEK / SCHEDULE)
+// 12. GOOGLE CALENDAR-STYLE DIARY VIEW (MONTH / WEEK / SCHEDULE)
 // ---------------------------------------------------------------------------
 function GoogleStyleDiaryView({
   isInstructor,
@@ -1925,7 +2317,7 @@ function GoogleStyleDiaryView({
   unavailability,
   rotaEvents,
 }) {
-  const [viewMode, setViewMode] = useState('month'); // 'month' | 'week' | 'schedule'
+  const [viewMode, setViewMode] = useState('month');
   const [selectedDate, setSelectedDate] = useState(getTodayDateStr());
   const [cursorDate, setCursorDate] = useState(() => {
     const now = new Date();
@@ -1959,12 +2351,11 @@ function GoogleStyleDiaryView({
     setCursorDate(next);
   };
 
-  // Build Month Grid Days (Monday start)
   const monthGridDays = useMemo(() => {
     const year = cursorDate.getFullYear();
     const month = cursorDate.getMonth();
     const firstOfMonth = new Date(year, month, 1);
-    const startOffset = (firstOfMonth.getDay() + 6) % 7; // Monday = 0
+    const startOffset = (firstOfMonth.getDay() + 6) % 7;
     const gridStart = new Date(year, month, 1 - startOffset);
     const days = [];
     for (let i = 0; i < 42; i++) {
@@ -1981,7 +2372,6 @@ function GoogleStyleDiaryView({
     return days;
   }, [cursorDate]);
 
-  // Build Week Grid Days (Monday to Sunday around cursorDate)
   const weekGridDays = useMemo(() => {
     const dayOffset = (cursorDate.getDay() + 6) % 7;
     const monday = new Date(
@@ -2000,13 +2390,10 @@ function GoogleStyleDiaryView({
     return days;
   }, [cursorDate]);
 
-  const selectedDayAgenda = useMemo(() => getEventsForDate(selectedDate), [
-    selectedDate,
-    visibleLessons,
-    unavailability,
-    rotaEvents,
-    isInstructor,
-  ]);
+  const selectedDayAgenda = useMemo(
+    () => getEventsForDate(selectedDate),
+    [selectedDate, visibleLessons, unavailability, rotaEvents, isInstructor]
+  );
 
   const upcomingScheduleLessons = useMemo(() => {
     const today = getTodayDateStr();
@@ -2017,7 +2404,6 @@ function GoogleStyleDiaryView({
 
   return (
     <div className="space-y-6">
-      {/* Top Google Calendar-Style Toolbar */}
       <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           <button
@@ -2050,7 +2436,6 @@ function GoogleStyleDiaryView({
           </h2>
         </div>
 
-        {/* View Toggle: Month / Week / Schedule */}
         <div className="flex items-center bg-slate-100 p-1 rounded-xl">
           {['month', 'week', 'schedule'].map((mode) => (
             <button
@@ -2069,7 +2454,6 @@ function GoogleStyleDiaryView({
         </div>
       </div>
 
-      {/* MONTH VIEW */}
       {viewMode === 'month' && (
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
           <div className="grid grid-cols-7 bg-slate-50 border-b border-slate-200 text-center py-2 text-xs font-bold text-slate-500">
@@ -2104,7 +2488,6 @@ function GoogleStyleDiaryView({
                     {dateObj.getDate()}
                   </span>
 
-                  {/* Coloured Horizontal Indicator Lines */}
                   <div className="space-y-1 w-full mt-1">
                     {dayLessons.some((l) => l.status === 'confirmed') && (
                       <div
@@ -2132,7 +2515,6 @@ function GoogleStyleDiaryView({
         </div>
       )}
 
-      {/* WEEK VIEW */}
       {viewMode === 'week' && (
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
           <div className="grid grid-cols-7 divide-x divide-slate-200">
@@ -2163,7 +2545,6 @@ function GoogleStyleDiaryView({
                     </span>
                   </div>
 
-                  {/* Coloured Lines + Compact Labels */}
                   <div className="space-y-1.5 w-full mt-3">
                     {dayLessons.map((l) => (
                       <div key={l.id} className="space-y-0.5">
@@ -2188,7 +2569,6 @@ function GoogleStyleDiaryView({
         </div>
       )}
 
-      {/* SCHEDULE VIEW */}
       {viewMode === 'schedule' && (
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-3">
           <h3 className="text-base font-bold text-slate-900">Upcoming Agenda Schedule</h3>
@@ -2227,7 +2607,6 @@ function GoogleStyleDiaryView({
         </div>
       )}
 
-      {/* Selected Day Agenda Details (for Month & Week Views) */}
       {viewMode !== 'schedule' && (
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2305,18 +2684,19 @@ function GoogleStyleDiaryView({
 }
 
 // ---------------------------------------------------------------------------
-// 11. INSTRUCTOR PUPILS DIRECTORY (LIST -> 3 ACTION BUTTONS)
+// 13. INSTRUCTOR PUPILS DIRECTORY (LIST -> 3 ACTION BUTTONS + TEST DATES)
 // ---------------------------------------------------------------------------
 function InstructorPupilsDirectoryView({
   accounts,
   lessons,
   onUpdateTopicStatus,
   onUpdateInstructorNotes,
+  onUpdatePupilTestDates,
   onMessagePupil,
 }) {
   const pupils = useMemo(() => accounts.filter((acc) => acc.role === 'pupil'), [accounts]);
   const [selectedPupilId, setSelectedPupilId] = useState(null);
-  const [activeSubView, setActiveSubView] = useState('addresses'); // 'addresses' | 'syllabus'
+  const [activeSubView, setActiveSubView] = useState('addresses');
 
   const selectedPupil = useMemo(
     () => pupils.find((p) => p.id === selectedPupilId) || null,
@@ -2343,8 +2723,8 @@ function InstructorPupilsDirectoryView({
         <div>
           <h2 className="text-xl font-bold text-slate-900">Pupil Directory</h2>
           <p className="text-sm text-slate-500 mt-1">
-            Click on a pupil below to view their pick-up &amp; drop-off addresses, update their DVSA
-            syllabus progress, or send them a message.
+            Click on a pupil below to view their pick-up &amp; drop-off addresses, record Theory /
+            Driving Test dates &amp; syllabus progress, or send them a message.
           </p>
         </div>
         <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 self-start sm:self-auto">
@@ -2402,6 +2782,33 @@ function InstructorPupilsDirectoryView({
                   </span>
                 </div>
 
+                {(pupil.theoryTestPassedDate || pupil.drivingTestScheduledDate) && (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {pupil.theoryTestPassedDate && (
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          isSelected
+                            ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-400/40'
+                            : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                        }`}
+                      >
+                        Theory Passed: {formatPickerDisplayDate(pupil.theoryTestPassedDate)}
+                      </span>
+                    )}
+                    {pupil.drivingTestScheduledDate && (
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          isSelected
+                            ? 'bg-amber-500/20 text-amber-200 border border-amber-400/40'
+                            : 'bg-amber-50 text-amber-800 border border-amber-200'
+                        }`}
+                      >
+                        Test Date: {formatPickerDisplayDate(pupil.drivingTestScheduledDate)}
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 <div className="mt-4">
                   <div
                     className={`w-full h-2 rounded-full overflow-hidden ${
@@ -2428,7 +2835,6 @@ function InstructorPupilsDirectoryView({
         </div>
       )}
 
-      {/* Selected Pupil Action Panel */}
       {selectedPupil && (
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pb-5 border-b border-slate-100">
@@ -2442,7 +2848,6 @@ function InstructorPupilsDirectoryView({
               </p>
             </div>
 
-            {/* 3 Action Buttons */}
             <div className="flex flex-wrap gap-2.5">
               <button
                 type="button"
@@ -2478,7 +2883,6 @@ function InstructorPupilsDirectoryView({
             </div>
           </div>
 
-          {/* Sub-View 1: Pick-up & Drop-off Addresses */}
           {activeSubView === 'addresses' && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
@@ -2525,7 +2929,6 @@ function InstructorPupilsDirectoryView({
             </div>
           )}
 
-          {/* Sub-View 2: Syllabus & Progress */}
           {activeSubView === 'syllabus' && (
             <SyllabusFlowchartView
               currentUser={{ role: 'instructor' }}
@@ -2533,6 +2936,7 @@ function InstructorPupilsDirectoryView({
               forcedPupilId={selectedPupil.id}
               onUpdateTopicStatus={onUpdateTopicStatus}
               onUpdateInstructorNotes={onUpdateInstructorNotes}
+              onUpdatePupilTestDates={onUpdatePupilTestDates}
             />
           )}
         </div>
@@ -2542,7 +2946,7 @@ function InstructorPupilsDirectoryView({
 }
 
 // ---------------------------------------------------------------------------
-// 12. DVSA SYLLABUS & PROGRESS VIEW
+// 14. DVSA SYLLABUS & TEST DATES VIEW
 // ---------------------------------------------------------------------------
 function SyllabusFlowchartView({
   currentUser,
@@ -2550,6 +2954,7 @@ function SyllabusFlowchartView({
   forcedPupilId,
   onUpdateTopicStatus,
   onUpdateInstructorNotes,
+  onUpdatePupilTestDates,
 }) {
   const isInstructor = currentUser.role === 'instructor';
   const targetPupil = useMemo(
@@ -2558,10 +2963,23 @@ function SyllabusFlowchartView({
   );
 
   const [notesDraft, setNotesDraft] = useState(targetPupil?.instructorNotes || '');
+  const [theoryPassedDate, setTheoryPassedDate] = useState(
+    targetPupil?.theoryTestPassedDate || ''
+  );
+  const [drivingScheduledDate, setDrivingScheduledDate] = useState(
+    targetPupil?.drivingTestScheduledDate || ''
+  );
 
   useEffect(() => {
     setNotesDraft(targetPupil?.instructorNotes || '');
-  }, [targetPupil?.id, targetPupil?.instructorNotes]);
+    setTheoryPassedDate(targetPupil?.theoryTestPassedDate || '');
+    setDrivingScheduledDate(targetPupil?.drivingTestScheduledDate || '');
+  }, [
+    targetPupil?.id,
+    targetPupil?.instructorNotes,
+    targetPupil?.theoryTestPassedDate,
+    targetPupil?.drivingTestScheduledDate,
+  ]);
 
   const progressMap = targetPupil?.syllabusProgress || {};
 
@@ -2583,6 +3001,74 @@ function SyllabusFlowchartView({
 
   return (
     <div className="space-y-6">
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
+        <div>
+          <h3 className="text-base font-bold text-slate-900">
+            Theory &amp; Practical Driving Test Dates — {targetPupil?.name}
+          </h3>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {isInstructor
+              ? 'Click the calendar icon inside each box to select the Theory Test pass date and scheduled Driving Test date.'
+              : 'Your recorded DVSA Theory Test pass date and upcoming Driving Test date.'}
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Theory Test — Date Passed
+            </label>
+            {isInstructor ? (
+              <CalendarDateInput
+                value={theoryPassedDate}
+                placeholder="Select Theory Test pass date..."
+                allowClear
+                onChange={(val) => setTheoryPassedDate(val)}
+              />
+            ) : (
+              <div className="px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm font-semibold text-slate-800">
+                {theoryPassedDate ? formatPickerDisplayDate(theoryPassedDate) : 'Not recorded yet'}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Driving Test — Date Scheduled
+            </label>
+            {isInstructor ? (
+              <CalendarDateInput
+                value={drivingScheduledDate}
+                placeholder="Select Driving Test date..."
+                allowClear
+                onChange={(val) => setDrivingScheduledDate(val)}
+              />
+            ) : (
+              <div className="px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm font-semibold text-slate-800">
+                {drivingScheduledDate
+                  ? formatPickerDisplayDate(drivingScheduledDate)
+                  : 'Not scheduled yet'}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {isInstructor && (
+          <button
+            type="button"
+            onClick={() =>
+              onUpdatePupilTestDates(targetPupil.id, {
+                theoryTestPassedDate: theoryPassedDate,
+                drivingTestScheduledDate: drivingScheduledDate,
+              })
+            }
+            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold"
+          >
+            Save Test Dates
+          </button>
+        )}
+      </div>
+
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
         <h3 className="text-lg font-bold text-slate-900">
           DVSA 27-Topic Syllabus Progress — {targetPupil?.name}
@@ -2630,7 +3116,6 @@ function SyllabusFlowchartView({
         </div>
       </div>
 
-      {/* Instructor Feedback Notes */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
         <h4 className="text-sm font-bold text-slate-900 mb-2">Instructor Feedback &amp; Notes</h4>
         {isInstructor ? (
@@ -2661,7 +3146,7 @@ function SyllabusFlowchartView({
 }
 
 // ---------------------------------------------------------------------------
-// 13. MESSAGING CENTER VIEW (AUTO-SELECTS PUPIL FROM DIRECTORY)
+// 15. MESSAGING CENTER VIEW
 // ---------------------------------------------------------------------------
 function MessagingCenterView({
   currentUser,
@@ -2710,7 +3195,6 @@ function MessagingCenterView({
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden grid grid-cols-1 md:grid-cols-12 min-h-[460px]">
-      {/* Contact Sidebar */}
       <div className="md:col-span-4 border-b md:border-b-0 md:border-r border-slate-200 bg-slate-50 p-4 space-y-2">
         <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 px-2">
           {isInstructor ? 'Pupil Conversations' : 'Instructor'}
@@ -2742,7 +3226,6 @@ function MessagingCenterView({
         )}
       </div>
 
-      {/* Chat Thread */}
       <div className="md:col-span-8 flex flex-col justify-between p-4 sm:p-6">
         <div className="border-b border-slate-100 pb-3 mb-4">
           <h3 className="font-bold text-slate-900">
@@ -2809,7 +3292,7 @@ function MessagingCenterView({
 }
 
 // ---------------------------------------------------------------------------
-// 14. SETTINGS TAB (ADDRESSES, CALENDAR SYNC, ROTA & EMAILJS)
+// 16. SETTINGS TAB (ADDRESSES, CALENDAR SYNC, ROTA & EMAILJS)
 // ---------------------------------------------------------------------------
 function AccountAndCalendarSettingsView({
   currentUser,
@@ -2827,7 +3310,6 @@ function AccountAndCalendarSettingsView({
 }) {
   const isInstructor = currentUser.role === 'instructor';
 
-  // Pupil Address & Alternative Locations State
   const [homeAddress, setHomeAddress] = useState(currentUser.homeAddress || '');
   const [postcodeArea, setPostcodeArea] = useState(currentUser.postcodeArea || 'PO19');
   const [phone, setPhone] = useState(currentUser.phone || '');
@@ -2835,7 +3317,6 @@ function AccountAndCalendarSettingsView({
   const [newLocAddress, setNewLocAddress] = useState('');
   const [newLocArea, setNewLocArea] = useState(currentUser.postcodeArea || 'PO19');
 
-  // Instructor Unavailability & Calendar Sync State
   const [fromDate, setFromDate] = useState(getTodayDateStr());
   const [toDate, setToDate] = useState(getTodayDateStr());
   const [allDayBlock, setAllDayBlock] = useState(true);
@@ -2854,7 +3335,6 @@ function AccountAndCalendarSettingsView({
     if (settings.rotaFeedUrl && !rotaUrl) setRotaUrl(settings.rotaFeedUrl);
   }, [settings]);
 
-  // Save Pupil Home Address & Phone
   const handleSavePupilProfile = async (e) => {
     e.preventDefault();
     await onUpdateAccount(currentUser.id, {
@@ -2864,7 +3344,6 @@ function AccountAndCalendarSettingsView({
     });
   };
 
-  // Add Alternative Pick-Up / Drop-Off Location
   const handleAddAlternativeLocation = async (e) => {
     e.preventDefault();
     if (!newLocAddress.trim()) return;
@@ -2890,7 +3369,6 @@ function AccountAndCalendarSettingsView({
     });
   };
 
-  // Fetch & Parse Connecteam / Google .ics Feed via Multi-Proxy Fallback
   const handleSyncRotaUrl = async () => {
     if (!rotaUrl.trim()) return;
     setSyncingRota(true);
@@ -2954,7 +3432,6 @@ function AccountAndCalendarSettingsView({
 
   return (
     <div className="space-y-6">
-      {/* PUPIL SETTINGS: FULL HOME ADDRESS, ALTERNATIVE LOCATIONS & CALENDAR SYNC */}
       {!isInstructor && (
         <>
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-5">
@@ -3022,7 +3499,6 @@ function AccountAndCalendarSettingsView({
             </form>
           </div>
 
-          {/* Alternative Pick-up & Drop-off Locations Manager */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-5">
             <div>
               <h2 className="text-lg font-bold text-slate-900">
@@ -3056,7 +3532,7 @@ function AccountAndCalendarSettingsView({
               <select
                 value={newLocArea}
                 onChange={(e) => setNewLocArea(e.target.value)}
-                className="sm:col-span-2 px-3 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm"
+                className="sm:col-span-2 px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm"
               >
                 {POSTCODE_AREAS.map((a) => (
                   <option key={a.code} value={a.code}>
@@ -3099,7 +3575,6 @@ function AccountAndCalendarSettingsView({
             )}
           </div>
 
-          {/* Pupil Calendar Export */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
             <h2 className="text-lg font-bold text-slate-900">Sync Lessons to Your Phone Calendar</h2>
             <p className="text-xs text-slate-500">
@@ -3118,10 +3593,8 @@ function AccountAndCalendarSettingsView({
         </>
       )}
 
-      {/* INSTRUCTOR SETTINGS: WORK ROTA SYNC, UNAVAILABILITY, HOURS & EMAILJS */}
       {isInstructor && (
         <>
-          {/* 1. Work Rota / Connecteam .ics Sync */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
             <div>
               <h2 className="text-lg font-bold text-slate-900">
@@ -3207,7 +3680,6 @@ function AccountAndCalendarSettingsView({
             </details>
           </div>
 
-          {/* 2. Multi-Day Holiday & Appointment Unavailability */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
             <h2 className="text-lg font-bold text-slate-900">
               Holiday &amp; Personal Unavailability Blocks
@@ -3229,24 +3701,20 @@ function AccountAndCalendarSettingsView({
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">From Date</label>
-                  <input
-                    type="date"
+                  <CalendarDateInput
                     value={fromDate}
-                    onChange={(e) => {
-                      setFromDate(e.target.value);
-                      if (e.target.value > toDate) setToDate(e.target.value);
+                    onChange={(newFrom) => {
+                      setFromDate(newFrom);
+                      if (newFrom && (!toDate || newFrom > toDate)) setToDate(newFrom);
                     }}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm"
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">To Date</label>
-                  <input
-                    type="date"
-                    min={fromDate}
+                  <CalendarDateInput
                     value={toDate}
-                    onChange={(e) => setToDate(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm"
+                    minDate={fromDate}
+                    onChange={(newTo) => setToDate(newTo)}
                   />
                 </div>
                 <div className="sm:col-span-2">
@@ -3255,7 +3723,7 @@ function AccountAndCalendarSettingsView({
                     type="text"
                     value={blockReason}
                     onChange={(e) => setBlockReason(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm"
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm"
                   />
                 </div>
               </div>
@@ -3321,7 +3789,6 @@ function AccountAndCalendarSettingsView({
             )}
           </div>
 
-          {/* 3. Working Hours & Automatic 24-Hour EmailJS Reminders */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-5">
             <h2 className="text-lg font-bold text-slate-900">
               Driving Lesson Hours &amp; Automatic 24-Hour Pupil Reminders
@@ -3423,7 +3890,51 @@ function AccountAndCalendarSettingsView({
             </button>
           </div>
 
-          {/* 4. Registered Accounts Management */}
+          {/* 4. Pupil Terms & Conditions Editor */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">
+                  Pupil Terms &amp; Conditions
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Shown to every new pupil immediately after they sign up. Edit below anytime to
+                  update your school policies.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setLocalSettings({
+                    ...localSettings,
+                    termsAndConditions: DEFAULT_TERMS_AND_CONDITIONS,
+                  })
+                }
+                className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold self-start sm:self-auto"
+              >
+                Reset to Default Template
+              </button>
+            </div>
+
+            <textarea
+              rows={10}
+              value={localSettings.termsAndConditions ?? DEFAULT_TERMS_AND_CONDITIONS}
+              onChange={(e) =>
+                setLocalSettings({ ...localSettings, termsAndConditions: e.target.value })
+              }
+              className="w-full p-3.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-xs sm:text-sm leading-relaxed font-sans focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+
+            <button
+              type="button"
+              onClick={() => onSaveSettings(localSettings)}
+              className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold"
+            >
+              Save Terms &amp; Conditions
+            </button>
+          </div>
+
+          {/* 5. Registered Accounts Management */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-3">
             <h2 className="text-lg font-bold text-slate-900">Registered Pupil Accounts</h2>
             {accounts.filter((a) => a.role === 'pupil').length === 0 ? (
