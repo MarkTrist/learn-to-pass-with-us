@@ -33,11 +33,8 @@ const getEnvVar = (key, fallback = '') => {
   return fallback;
 };
 
-const apiKeyEnv = getEnvVar('VITE_FIREBASE_API_KEY', '');
-const hasRealFirebaseConfig = Boolean(apiKeyEnv && !apiKeyEnv.includes('Dummy'));
-
 const firebaseConfig = {
-  apiKey: apiKeyEnv || 'AIzaSyDummyKeyForLearnToPassWithUs',
+  apiKey: getEnvVar('VITE_FIREBASE_API_KEY', 'AIzaSyDummyKeyForLearnToPassWithUs'),
   authDomain: getEnvVar('VITE_FIREBASE_AUTH_DOMAIN', 'learn-2-pass-with-us.firebaseapp.com'),
   projectId: getEnvVar('VITE_FIREBASE_PROJECT_ID', 'learn-2-pass-with-us'),
   storageBucket: getEnvVar('VITE_FIREBASE_STORAGE_BUCKET', 'learn-2-pass-with-us.appspot.com'),
@@ -45,18 +42,19 @@ const firebaseConfig = {
   appId: getEnvVar('VITE_FIREBASE_APP_ID', '1:123456789012:web:abcdef123456'),
 };
 
+const hasRealFirebaseConfig =
+  firebaseConfig.apiKey && !firebaseConfig.apiKey.includes('DummyKey');
+
 let appInstance = null;
 let authInstance = null;
 let dbInstance = null;
 
-if (hasRealFirebaseConfig) {
-  try {
-    appInstance = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-    authInstance = getAuth(appInstance);
-    dbInstance = getFirestore(appInstance);
-  } catch (err) {
-    console.warn('Firebase initialization warning:', err);
-  }
+try {
+  appInstance = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+  authInstance = getAuth(appInstance);
+  dbInstance = getFirestore(appInstance);
+} catch (err) {
+  console.warn('Firebase initialization warning:', err);
 }
 
 const INSTRUCTOR_ACCESS_CODE = 'EN56WXA';
@@ -66,31 +64,52 @@ const CAR_DETAILS = 'Black Volkswagen Golf Mk5 GTI (Manual 6-Speed • EN56 WXA)
 const DEFAULT_TERMS_AND_CONDITIONS = `LEARN TO PASS WITH US — PUPIL TERMS & CONDITIONS
 
 1. PROVISIONAL LICENCE & EYESIGHT REQUIREMENT
-• You must hold a valid UK Provisional (or Full) Driving Licence and present it (along with your DVLA check code if requested) before your first driving lesson.
-• You must be able to read a standard UK vehicle number plate from a distance of 20 metres (or 20.5 metres for old-style plates), wearing glasses or contact lenses if required. You must wear corrective lenses on every lesson if needed to meet this standard.
+• Pupils must hold a valid UK provisional or full driving licence and present it (along with a DVLA check code if requested) before their first lesson.
+• Pupils must be able to read a standard UK vehicle number plate from a distance of 20 metres (with glasses or contact lenses if worn).
 
-2. 48-HOUR CANCELLATION & RESCHEDULING POLICY
-• A minimum of 48 hours' notice is required to cancel or reschedule a booked driving lesson without charge.
-• Lessons cancelled with less than 48 hours' notice will be charged at the full lesson rate, except in genuine medical emergencies at the instructor's discretion.
+2. LESSON BOOKINGS & 24-HOUR CONFIRMATION
+• Lessons may be booked in 1-hour, 1.5-hour, or 2-hour durations within available instructor hours (07:00 – 18:00).
+• Pupils will receive an automated reminder 24 hours prior to each lesson and must confirm attendance via the pupil portal.
 
-3. LESSON PAYMENTS & BLOCK BOOKINGS
-• Single lessons must be paid for in advance or at the start of the lesson.
-• Block booking discounts apply only when paid in full upfront. Unused block hours are refundable minus any lessons already taken (recalculated at the standard single-hour rate).
+3. CANCELLATIONS & RESCHEDULING POLICY
+• A minimum of 48 hours' notice is required to cancel or reschedule a driving lesson without charge.
+• Lessons cancelled with less than 48 hours' notice may still be charged at the full lesson rate unless agreed otherwise due to exceptional circumstances.
 
-4. PUNCTUALITY & WAITING TIME
-• Your instructor will wait up to 15 minutes at the agreed pick-up address. If you have not arrived or made contact within 15 minutes, the lesson will be abandoned and charged in full.
-• Any late arrival by the pupil will reduce the remaining lesson duration accordingly.
+4. FITNESS TO DRIVE & SAFETY
+• Pupils must be fit to drive and completely free from the influence of alcohol, recreational drugs, or drowsiness-inducing medication.
+• Appropriate footwear (flat, narrow-soled shoes) must be worn for safe clutch, brake, and accelerator control.
 
-5. FITNESS TO DRIVE (ALCOHOL, MEDICATION & FATIGUE)
-• You must be legally fit to drive on every lesson. Lessons will be cancelled immediately and charged in full if the instructor suspects you are under the influence of alcohol, illegal drugs, or drowsiness-inducing medication.
+5. PRACTICAL DRIVING TEST BOOKINGS
+• Use of the dual-control Volkswagen Golf Mk5 GTI (EN56 WXA) for the DVSA practical test is subject to the instructor's agreement that the pupil has reached a safe, test-ready standard.
 
-6. VEHICLE CARE & DUAL-CONTROL SAFETY
-• Tuition takes place in a dual-control manual vehicle (Volkswagen Golf Mk5 GTI • EN56 WXA). You agree to follow the instructor's safety directions at all times.
-• While the instructor takes reasonable steps to prevent damage, pupils must not act recklessly or intentionally misuse vehicle controls.
+6. PERSONAL DATA & PRIVACY
+• Contact details, pick-up/drop-off addresses, and DVSA syllabus progress records are stored securely solely for scheduling and delivering driving tuition.`;
 
-7. USE OF INSTRUCTOR'S CAR FOR THE PRACTICAL DRIVING TEST
-• Booking a practical driving test date using the school car must be agreed with your instructor first.
-• The instructor reserves the right to withhold the use of the training vehicle for a practical test if your driving has not yet reached a safe, test-ready standard.`;
+// ---------------------------------------------------------------------------
+// 2. WEST SUSSEX POSTCODE AREAS & TRAVEL MATRIX
+// ---------------------------------------------------------------------------
+const POSTCODE_AREAS = [
+  { code: 'PO19', label: 'PO19 — Chichester North / City Centre', driveMinutesFromBase: 5 },
+  { code: 'PO20', label: 'PO20 — Chichester South / Selsey / Witterings', driveMinutesFromBase: 15 },
+  { code: 'PO18', label: 'PO18 — Bosham / Lavant / Boxgrove', driveMinutesFromBase: 10 },
+  { code: 'PO21', label: 'PO21 — Bognor Regis West / Aldwick / Pagham', driveMinutesFromBase: 15 },
+  { code: 'PO22', label: 'PO22 — Bognor Regis East / Felpham / Barnham', driveMinutesFromBase: 20 },
+  { code: 'BN18', label: 'BN18 — Arundel / Yapton / Walberton', driveMinutesFromBase: 20 },
+  { code: 'BN17', label: 'BN17 — Littlehampton / Wick / Rustington', driveMinutesFromBase: 25 },
+  { code: 'PO10', label: 'PO10 — Emsworth / Southbourne / Westbourne', driveMinutesFromBase: 15 },
+  { code: 'PO9', label: 'PO9 — Havant / Rowland’s Castle', driveMinutesFromBase: 20 },
+  { code: 'PO1-PO6', label: 'PO1–PO6 — Portsmouth / Cosham / Hilsea Test Centre', driveMinutesFromBase: 30 },
+];
+
+const estimateTravelMinutes = (areaA, areaB) => {
+  if (!areaA || !areaB || areaA === areaB) return 10;
+  const infoA = POSTCODE_AREAS.find((p) => p.code === areaA);
+  const infoB = POSTCODE_AREAS.find((p) => p.code === areaB);
+  if (!infoA || !infoB) return 15;
+  return Math.max(10, Math.abs(infoA.driveMinutesFromBase - infoB.driveMinutesFromBase) + 10);
+};
+
+// ---------------------------------------------------------------------------
 // 3. DVSA 27-TOPIC SYLLABUS
 // ---------------------------------------------------------------------------
 const DVSA_SYLLABUS_TOPICS = [
@@ -153,14 +172,6 @@ const getTodayDateStr = () => {
   ).padStart(2, '0')}`;
 };
 
-const addDaysToDateStr = (dateStr, days) => {
-  const [y, m, d] = normalizeDateStr(dateStr).split('-').map(Number);
-  const dt = new Date(y, m - 1, d + days);
-  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(
-    dt.getDate()
-  ).padStart(2, '0')}`;
-};
-
 const timeToMinutes = (hhmm) => {
   if (!hhmm || typeof hhmm !== 'string') return 0;
   const [h, m] = hhmm.split(':').map((n) => parseInt(n, 10));
@@ -188,14 +199,14 @@ const formatDisplayDate = (dateStr) => {
   });
 };
 
-const formatPickerDisplayDate = (dateStr) => {
+const formatShortUKDate = (dateStr) => {
   const norm = normalizeDateStr(dateStr);
   if (!norm) return '';
   const [y, m, d] = norm.split('-').map(Number);
   const dt = new Date(y, m - 1, d);
   return dt.toLocaleDateString('en-GB', {
     day: '2-digit',
-    month: 'short',
+    month: '2-digit',
     year: 'numeric',
   });
 };
@@ -343,6 +354,8 @@ const parseICSFeedEvents = (icsText) => {
   return expanded;
 };
 
+// Core availability engine: enforces 30-minute travel radius + 10-minute notes buffer
+// between adjacent lessons, plus manual unavailability and work rota shifts (+1h pre/post).
 const computeSlotAvailability = ({
   date,
   durationMinutes = 60,
@@ -360,23 +373,37 @@ const computeSlotAvailability = ({
   const lastStart = timeToMinutes(settings.workEnd || '18:00');
   const blockedIntervals = [];
 
+  // 1. Existing confirmed/completed lessons + 10-min notes wrap-up + 30-min travel radius check
   lessons.forEach((lesson) => {
     if (normalizeDateStr(lesson.date) !== targetDate) return;
     if (lesson.status === 'cancelled' || lesson.status === 'declined') return;
     const lStart = timeToMinutes(lesson.startTime);
     const lEnd = lStart + (Number(lesson.durationMinutes) || 60);
-    const bufferBefore = estimateTravelMinutes(dropoffArea, lesson.pickupArea || 'PO19');
-    const bufferAfter = estimateTravelMinutes(
+
+    const driveBefore = estimateTravelMinutes(dropoffArea, lesson.pickupArea || 'PO19');
+    const driveAfter = estimateTravelMinutes(
       lesson.dropoffArea || lesson.pickupArea || 'PO19',
       pickupArea
     );
-    blockedIntervals.push({
-      start: Math.max(0, lStart - bufferBefore),
-      end: Math.min(24 * 60, lEnd + bufferAfter),
-      reason: 'Booked Lesson',
-    });
+
+    if (driveBefore > 30 || driveAfter > 30) {
+      blockedIntervals.push({
+        start: 0,
+        end: 24 * 60,
+        reason: 'Outside 30-min travel radius from adjacent lesson',
+      });
+    } else {
+      const bufferBefore = 10 + driveBefore;
+      const bufferAfter = 10 + driveAfter;
+      blockedIntervals.push({
+        start: Math.max(0, lStart - bufferBefore),
+        end: Math.min(24 * 60, lEnd + bufferAfter),
+        reason: 'Booked Lesson (+10m notes & travel)',
+      });
+    }
   });
 
+  // 2. Manual Unavailability blocks
   unavailability.forEach((block) => {
     if (normalizeDateStr(block.date) !== targetDate) return;
     if (block.allDay) {
@@ -390,6 +417,7 @@ const computeSlotAvailability = ({
     }
   });
 
+  // 3. Imported Work Rota shifts (+60 mins before & +60 mins after)
   rotaEvents.forEach((ev) => {
     if (normalizeDateStr(ev.date) !== targetDate) return;
     if (ev.allDay) {
@@ -400,12 +428,17 @@ const computeSlotAvailability = ({
       blockedIntervals.push({
         start: Math.max(0, s - 60),
         end: Math.min(24 * 60, e + 60),
-        reason: ev.title || 'Work Shift (+1h travel buffer)',
+        reason: ev.title || 'Work Shift (+1h buffer)',
       });
     }
   });
 
-  const prevDateStr = addDaysToDateStr(targetDate, -1);
+  const [yy, mm, dd] = targetDate.split('-').map(Number);
+  const prevDt = new Date(yy, mm - 1, dd - 1);
+  const prevDateStr = `${prevDt.getFullYear()}-${String(prevDt.getMonth() + 1).padStart(
+    2,
+    '0'
+  )}-${String(prevDt.getDate()).padStart(2, '0')}`;
   rotaEvents.forEach((ev) => {
     if (normalizeDateStr(ev.date) !== prevDateStr || ev.allDay) return;
     const e = timeToMinutes(ev.endTime || '00:00');
@@ -460,6 +493,7 @@ const computeSlotAvailability = ({
   return slots;
 };
 
+// Calendar Export Helpers
 const buildGoogleCalendarUrl = (lesson) => {
   const dateCompact = normalizeDateStr(lesson.date).replace(/-/g, '');
   const startMin = timeToMinutes(lesson.startTime);
@@ -523,7 +557,7 @@ const downloadLessonsICS = (lessonsList, filename = 'learn-to-pass-lessons.ics')
 };
 
 // ---------------------------------------------------------------------------
-// 5. CUSTOM POPUP CALENDAR DATE INPUT (WITH CALENDAR ICON ON RIGHT)
+// 5. CUSTOM POPUP CALENDAR DATE INPUT (WITH CLICKABLE CALENDAR ICON)
 // ---------------------------------------------------------------------------
 function CalendarDateInput({
   value,
@@ -533,83 +567,78 @@ function CalendarDateInput({
   allowClear = false,
 }) {
   const [open, setOpen] = useState(false);
-  const wrapperRef = useRef(null);
+  const containerRef = useRef(null);
 
-  const normalizedVal = normalizeDateStr(value);
-  const normalizedMin = normalizeDateStr(minDate);
-
-  const [viewMonth, setViewMonth] = useState(() => {
-    if (normalizedVal) {
-      const [y, m] = normalizedVal.split('-').map(Number);
+  const initialCursor = useMemo(() => {
+    const norm = normalizeDateStr(value);
+    if (norm && /^\d{4}-\d{2}-\d{2}$/.test(norm)) {
+      const [y, m] = norm.split('-').map(Number);
       return new Date(y, m - 1, 1);
     }
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
-  });
+  }, [value]);
+
+  const [viewMonth, setViewMonth] = useState(initialCursor);
 
   useEffect(() => {
-    if (normalizedVal) {
-      const [y, m] = normalizedVal.split('-').map(Number);
-      setViewMonth(new Date(y, m - 1, 1));
-    }
-  }, [normalizedVal]);
+    setViewMonth(initialCursor);
+  }, [initialCursor]);
 
   useEffect(() => {
     const handleOutsideClick = (e) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
         setOpen(false);
       }
     };
-    if (open) {
-      document.addEventListener('mousedown', handleOutsideClick);
-    }
+    if (open) document.addEventListener('mousedown', handleOutsideClick);
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [open]);
 
   const calendarDays = useMemo(() => {
     const year = viewMonth.getFullYear();
     const month = viewMonth.getMonth();
-    const firstDay = new Date(year, month, 1);
-    const startOffset = (firstDay.getDay() + 6) % 7; // Monday = 0
-    const startDate = new Date(year, month, 1 - startOffset);
-
+    const first = new Date(year, month, 1);
+    const offset = (first.getDay() + 6) % 7;
+    const start = new Date(year, month, 1 - offset);
     const list = [];
     for (let i = 0; i < 42; i++) {
-      const d = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + i);
+      const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
       const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
         d.getDate()
       ).padStart(2, '0')}`;
       list.push({
+        dateObj: d,
         dateStr: dStr,
-        dayNum: d.getDate(),
         inMonth: d.getMonth() === month,
-        disabled: Boolean(normalizedMin && dStr < normalizedMin),
       });
     }
     return list;
-  }, [viewMonth, normalizedMin]);
+  }, [viewMonth]);
+
+  const normSelected = normalizeDateStr(value);
+  const normMin = normalizeDateStr(minDate);
 
   return (
-    <div ref={wrapperRef} className="relative w-full">
+    <div ref={containerRef} className="relative">
       <div
         onClick={() => setOpen((prev) => !prev)}
-        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm flex items-center justify-between gap-2 cursor-pointer hover:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500 transition-colors"
+        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm flex items-center justify-between gap-2 cursor-pointer hover:border-emerald-500 transition-colors"
       >
-        <span className={normalizedVal ? 'font-medium text-slate-900' : 'text-slate-400'}>
-          {normalizedVal ? formatPickerDisplayDate(normalizedVal) : placeholder}
+        <span className={normSelected ? 'font-medium text-slate-900' : 'text-slate-400'}>
+          {normSelected ? formatDisplayDate(normSelected) : placeholder}
         </span>
 
-        <div className="flex items-center gap-1.5 shrink-0">
-          {allowClear && normalizedVal && (
+        <div className="flex items-center gap-1.5">
+          {allowClear && normSelected && (
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onChange('');
-                setOpen(false);
               }}
               title="Clear date"
-              className="text-xs text-slate-400 hover:text-red-600 font-bold px-1"
+              className="text-xs font-bold text-slate-400 hover:text-red-500 px-1"
             >
               ✕
             </button>
@@ -620,8 +649,8 @@ function CalendarDateInput({
               e.stopPropagation();
               setOpen((prev) => !prev);
             }}
-            aria-label="Open calendar"
-            className="text-slate-500 hover:text-emerald-600 transition-colors"
+            title="Open calendar picker"
+            className="p-1 rounded-lg text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
           >
             <svg
               className="w-4 h-4"
@@ -640,14 +669,14 @@ function CalendarDateInput({
       </div>
 
       {open && (
-        <div className="absolute left-0 mt-2 w-72 bg-white rounded-2xl border border-slate-200 shadow-xl p-3.5 z-50">
+        <div className="absolute left-0 mt-1.5 z-50 w-72 bg-white rounded-2xl border border-slate-200 shadow-xl p-3.5">
           <div className="flex items-center justify-between mb-2.5">
             <button
               type="button"
               onClick={() =>
                 setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1))
               }
-              className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-700 font-bold flex items-center justify-center"
+              className="px-2.5 py-1 rounded-lg hover:bg-slate-100 text-xs font-bold text-slate-700"
             >
               ‹
             </button>
@@ -659,7 +688,7 @@ function CalendarDateInput({
               onClick={() =>
                 setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1))
               }
-              className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-700 font-bold flex items-center justify-center"
+              className="px-2.5 py-1 rounded-lg hover:bg-slate-100 text-xs font-bold text-slate-700"
             >
               ›
             </button>
@@ -672,31 +701,33 @@ function CalendarDateInput({
           </div>
 
           <div className="grid grid-cols-7 gap-0.5">
-            {calendarDays.map((day) => {
-              const isSelected = day.dateStr === normalizedVal;
-              const isToday = day.dateStr === getTodayDateStr();
+            {calendarDays.map(({ dateObj, dateStr, inMonth }) => {
+              const disabled = Boolean(normMin && dateStr < normMin);
+              const isSelected = dateStr === normSelected;
+              const isToday = dateStr === getTodayDateStr();
+
               return (
                 <button
-                  key={day.dateStr}
+                  key={dateStr}
                   type="button"
-                  disabled={day.disabled}
+                  disabled={disabled}
                   onClick={() => {
-                    onChange(day.dateStr);
+                    onChange(dateStr);
                     setOpen(false);
                   }}
-                  className={`h-8 rounded-lg text-xs font-semibold transition-colors ${
-                    day.disabled
+                  className={`h-8 rounded-lg text-xs font-bold transition-colors ${
+                    disabled
                       ? 'text-slate-300 cursor-not-allowed'
                       : isSelected
-                      ? 'bg-emerald-600 text-white font-bold'
+                      ? 'bg-emerald-600 text-white'
                       : isToday
-                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-300 font-bold'
-                      : day.inMonth
+                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                      : inMonth
                       ? 'text-slate-800 hover:bg-slate-100'
                       : 'text-slate-400 hover:bg-slate-50'
                   }`}
                 >
-                  {day.dayNum}
+                  {dateObj.getDate()}
                 </button>
               );
             })}
@@ -708,7 +739,7 @@ function CalendarDateInput({
 }
 
 // ---------------------------------------------------------------------------
-// 6. VEHICLE BADGE COMPONENT
+// 6. VEHICLE BADGE & TERMS SPLASH MODAL
 // ---------------------------------------------------------------------------
 function VWGolfGTIBadge() {
   return (
@@ -729,16 +760,12 @@ function VWGolfGTIBadge() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// 7. POST-SIGNUP TERMS & CONDITIONS SPLASH SCREEN
-// ---------------------------------------------------------------------------
 function TermsSplashModal({ pupilName, termsText, onAcceptTerms, onSignOut }) {
-  const [checked, setChecked] = useState(false);
+  const [agreed, setAgreed] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const handleConfirm = async (e) => {
-    e.preventDefault();
-    if (!checked) return;
+  const handleConfirm = async () => {
+    if (!agreed) return;
     setSaving(true);
     try {
       await onAcceptTerms();
@@ -748,77 +775,69 @@ function TermsSplashModal({ pupilName, termsText, onAcceptTerms, onSignOut }) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900/90 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="max-w-2xl w-full bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-        {/* Header */}
-        <div className="bg-amber-600 text-white px-6 py-5 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-slate-950 text-red-500 font-black text-xl flex items-center justify-center border border-slate-700">
-              L
-            </div>
-            <div>
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-amber-100">
-                Welcome to {SCHOOL_NAME}
-              </span>
-              <h2 className="text-lg sm:text-xl font-black leading-tight">
-                Pupil Terms &amp; Conditions
-              </h2>
-            </div>
+    <div className="min-h-screen bg-slate-900/90 flex items-center justify-center p-4">
+      <div className="max-w-2xl w-full bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden">
+        <div className="bg-amber-600 text-white px-6 py-5 flex items-center justify-between">
+          <div>
+            <span className="text-[11px] font-extrabold uppercase tracking-wider text-amber-100">
+              Welcome to {SCHOOL_NAME}
+            </span>
+            <h2 className="text-xl font-black mt-0.5">
+              Pupil Terms &amp; Conditions
+            </h2>
           </div>
-          <button
-            type="button"
-            onClick={onSignOut}
-            className="px-3 py-1.5 rounded-xl bg-slate-950/25 hover:bg-slate-950/40 text-white text-xs font-bold"
-          >
-            Sign out
-          </button>
+          <span className="px-2.5 py-1 rounded-lg bg-slate-950 text-white text-xs font-bold">
+            Action Required
+          </span>
         </div>
 
-        {/* Intro */}
-        <div className="px-6 pt-5 pb-3">
-          <p className="text-sm text-slate-700">
-            Hi <strong>{pupilName}</strong>, before accessing your pupil booking portal and
-            syllabus tracker, please read and accept our driving tuition Terms &amp; Conditions
-            below.
+        <div className="p-6 space-y-5">
+          <p className="text-sm text-slate-600">
+            Hi <strong>{pupilName}</strong>, before booking your first driving lesson, please read
+            and accept the driving school Terms &amp; Conditions below.
           </p>
-        </div>
 
-        {/* Scrollable Terms Box */}
-        <div className="px-6 flex-1 overflow-hidden flex flex-col">
-          <div className="flex-1 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5 text-xs sm:text-sm text-slate-700 whitespace-pre-line leading-relaxed max-h-[45vh]">
+          <div className="h-64 overflow-y-auto p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs sm:text-sm text-slate-700 whitespace-pre-line leading-relaxed">
             {termsText || DEFAULT_TERMS_AND_CONDITIONS}
           </div>
-        </div>
 
-        {/* Acceptance Form */}
-        <form onSubmit={handleConfirm} className="p-6 space-y-4 border-t border-slate-100 mt-4">
-          <label className="flex items-start gap-3 cursor-pointer select-none">
+          <label className="flex items-start gap-3 p-3.5 rounded-xl bg-emerald-50/70 border border-emerald-200 cursor-pointer">
             <input
               type="checkbox"
-              checked={checked}
-              onChange={(e) => setChecked(e.target.checked)}
+              checked={agreed}
+              onChange={(e) => setAgreed(e.target.checked)}
               className="mt-0.5 w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
             />
-            <span className="text-xs sm:text-sm font-bold text-slate-800">
-              I have read and agree to the {SCHOOL_NAME} Terms &amp; Conditions.
+            <span className="text-xs sm:text-sm font-semibold text-slate-900">
+              I have read, understood, and agree to the {SCHOOL_NAME} Terms &amp; Conditions.
             </span>
           </label>
 
-          <button
-            type="submit"
-            disabled={!checked || saving}
-            className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-sm transition-colors disabled:opacity-40"
-          >
-            {saving ? 'Saving Acceptance...' : 'Accept & Continue to Pupil Portal'}
-          </button>
-        </form>
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onSignOut}
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-300 text-slate-600 hover:bg-slate-50 text-xs font-bold"
+            >
+              Sign Out
+            </button>
+            <button
+              type="button"
+              disabled={!agreed || saving}
+              onClick={handleConfirm}
+              className="w-full sm:w-auto px-6 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-sm disabled:opacity-40"
+            >
+              {saving ? 'Saving...' : 'Accept & Continue to Pupil Portal'}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// 8. MAIN APPLICATION COMPONENT
+// 7. MAIN APPLICATION COMPONENT
 // ---------------------------------------------------------------------------
 export default function App() {
   const [firebaseReady, setFirebaseReady] = useState(false);
@@ -912,7 +931,8 @@ export default function App() {
 
   // Automatic 24-Hour Reminder Engine
   useEffect(() => {
-    if (!schoolSettings.autoReminderEnabled || lessons.length === 0 || accounts.length === 0) return;
+    if (!firebaseReady || !dbInstance || !schoolSettings.autoReminderEnabled) return;
+    if (lessons.length === 0 || accounts.length === 0) return;
 
     const now = Date.now();
     const twentyFourHoursMs = 24 * 60 * 60 * 1000;
@@ -927,73 +947,58 @@ export default function App() {
       const diff = lessonStartMs - now;
 
       if (diff > 0 && diff <= twentyFourHoursMs) {
-        const reminderText = `24-Hour Reminder: Your ${
-          lesson.durationMinutes || 60
-        }min driving lesson is tomorrow (${formatDisplayDate(lesson.date)}) at ${
-          lesson.startTime
-        }. Pick-up: ${
-          lesson.pickupLocation || lesson.pickupArea
-        }. Please tap "Confirm Still Attending" on your Lessons tab.`;
-
-        if (hasRealFirebaseConfig && dbInstance) {
+        try {
           await updateDoc(doc(dbInstance, 'lessons', lesson.id), {
             reminderSent: true,
             reminderSentAt: new Date().toISOString(),
           });
+
+          const pupil = accounts.find((a) => a.id === lesson.pupilId);
           const instructor = accounts.find((a) => a.role === 'instructor');
+
           await addDoc(collection(dbInstance, 'messages'), {
             senderId: instructor?.id || 'system',
             senderName: SCHOOL_NAME,
             recipientId: lesson.pupilId,
-            text: reminderText,
+            text: `24-Hour Reminder: Your ${lesson.durationMinutes || 60}min driving lesson is tomorrow (${formatDisplayDate(
+              lesson.date
+            )}) at ${lesson.startTime}. Pick-up: ${
+              lesson.pickupLocation || lesson.pickupArea
+            }. Please tap "Confirm Still Attending" on your Lessons tab.`,
             createdAt: new Date().toISOString(),
           });
-        } else {
-          setLessons((prev) =>
-            prev.map((l) => (l.id === lesson.id ? { ...l, reminderSent: true } : l))
-          );
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `msg-${Date.now()}`,
-              senderId: 'system',
-              senderName: SCHOOL_NAME,
-              recipientId: lesson.pupilId,
-              text: reminderText,
-              createdAt: new Date().toISOString(),
-            },
-          ]);
-        }
 
-        const pupil = accounts.find((a) => a.id === lesson.pupilId);
-        if (
-          pupil?.email &&
-          schoolSettings.emailjsServiceId &&
-          schoolSettings.emailjsTemplateId &&
-          schoolSettings.emailjsPublicKey
-        ) {
-          fetch('https://api.emailjs.com/api/v1.0/email/send', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              service_id: schoolSettings.emailjsServiceId,
-              template_id: schoolSettings.emailjsTemplateId,
-              user_id: schoolSettings.emailjsPublicKey,
-              template_params: {
-                to_email: pupil.email,
-                to_name: pupil.name,
-                school_name: SCHOOL_NAME,
-                lesson_date: formatDisplayDate(lesson.date),
-                lesson_time: lesson.startTime,
-                pickup_location: lesson.pickupLocation || lesson.pickupArea,
-                lesson_focus: lesson.focusTopic || 'Manual Driving Lesson',
-              },
-            }),
-          }).catch((err) => console.warn('EmailJS warning:', err));
+          if (
+            pupil?.email &&
+            schoolSettings.emailjsServiceId &&
+            schoolSettings.emailjsTemplateId &&
+            schoolSettings.emailjsPublicKey
+          ) {
+            fetch('https://api.emailjs.com/api/v1.0/email/send', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                service_id: schoolSettings.emailjsServiceId,
+                template_id: schoolSettings.emailjsTemplateId,
+                user_id: schoolSettings.emailjsPublicKey,
+                template_params: {
+                  to_email: pupil.email,
+                  to_name: pupil.name,
+                  school_name: SCHOOL_NAME,
+                  lesson_date: formatDisplayDate(lesson.date),
+                  lesson_time: lesson.startTime,
+                  pickup_location: lesson.pickupLocation || lesson.pickupArea,
+                  lesson_focus: lesson.focusTopic || 'Manual Driving Lesson',
+                },
+              }),
+            }).catch((err) => console.warn('EmailJS warning:', err));
+          }
+        } catch (err) {
+          console.warn('Auto reminder error:', err);
         }
       }
     });
-  }, [lessons, accounts, schoolSettings]);
+  }, [firebaseReady, lessons, accounts, schoolSettings]);
 
   const handleLogin = (email, password) => {
     const match = accounts.find(
@@ -1035,29 +1040,36 @@ export default function App() {
       savedLocations: [],
       theoryTestPassedDate: '',
       drivingTestScheduledDate: '',
+      licenceNumber: '',
+      licenceExpiryDate: '',
+      dvlaCheckCode: '',
+      glassesRequired: false,
+      licenceVerified: false,
+      hoursBooked: 0,
+      hoursDelivered: 0,
+      hoursCancelled: 0,
       syllabusProgress: {},
       instructorNotes: '',
       termsAccepted: formData.role === 'instructor',
-      termsAcceptedAt: formData.role === 'instructor' ? new Date().toISOString() : '',
       createdAt: new Date().toISOString(),
     };
 
-    let assignedId = `acc-${Date.now()}`;
     if (hasRealFirebaseConfig && dbInstance) {
       const docRef = await addDoc(collection(dbInstance, 'accounts'), newAccount);
-      assignedId = docRef.id;
+      setCurrentUserId(docRef.id);
+      try {
+        localStorage.setItem('ltpwu_user_id', docRef.id);
+      } catch (_) {}
     } else {
-      setAccounts((prev) => [...prev, { id: assignedId, ...newAccount }]);
+      const localId = `user-${Date.now()}`;
+      setAccounts((prev) => [...prev, { id: localId, ...newAccount }]);
+      setCurrentUserId(localId);
+      try {
+        localStorage.setItem('ltpwu_user_id', localId);
+      } catch (_) {}
     }
-
-    setCurrentUserId(assignedId);
     setActiveTab('dashboard');
-    try {
-      localStorage.setItem('ltpwu_user_id', assignedId);
-    } catch (_) {}
-    if (formData.role === 'instructor') {
-      showToast(`Welcome to ${SCHOOL_NAME}, ${newAccount.name}!`);
-    }
+    showToast(`Welcome to ${SCHOOL_NAME}, ${newAccount.name}!`);
     return '';
   };
 
@@ -1074,7 +1086,7 @@ export default function App() {
         prev.map((a) => (a.id === currentUser.id ? { ...a, ...updates } : a))
       );
     }
-    showToast(`Terms accepted — welcome to ${SCHOOL_NAME}, ${currentUser.name}!`);
+    showToast('Terms & Conditions accepted. Welcome to your portal!');
   };
 
   const handleLogout = () => {
@@ -1086,13 +1098,16 @@ export default function App() {
   };
 
   const handleCreateBookingRequest = async (bookingData) => {
+    const durationMins = Number(bookingData.durationMinutes) || 60;
+    const addedHours = Number((durationMins / 60).toFixed(2));
+
     const newLesson = {
       pupilId: currentUser.id,
       pupilName: currentUser.name,
       pupilPhone: currentUser.phone || '',
       date: normalizeDateStr(bookingData.date),
       startTime: bookingData.startTime,
-      durationMinutes: Number(bookingData.durationMinutes) || 60,
+      durationMinutes: durationMins,
       pickupArea: bookingData.pickupArea || currentUser.postcodeArea || 'PO19',
       pickupLocation:
         bookingData.pickupLocation || currentUser.homeAddress || bookingData.pickupArea,
@@ -1100,21 +1115,126 @@ export default function App() {
       dropoffLocation:
         bookingData.dropoffLocation || bookingData.pickupLocation || bookingData.pickupArea,
       focusTopic: bookingData.focusTopic || 'General Driving & Junctions',
-      status: 'pending',
+      status: 'confirmed',
+      delivered: false,
       pupilConfirmed24h: false,
       reminderSent: false,
       createdAt: new Date().toISOString(),
     };
 
+    const currentBooked = Number(currentUser.hoursBooked) || 0;
+    const updatedHours = { hoursBooked: Number((currentBooked + addedHours).toFixed(2)) };
+
     if (hasRealFirebaseConfig && dbInstance) {
       await addDoc(collection(dbInstance, 'lessons'), newLesson);
+      await updateDoc(doc(dbInstance, 'accounts', currentUser.id), updatedHours);
     } else {
       setLessons((prev) => [...prev, { id: `lesson-${Date.now()}`, ...newLesson }]);
+      setAccounts((prev) =>
+        prev.map((a) => (a.id === currentUser.id ? { ...a, ...updatedHours } : a))
+      );
     }
-    showToast('Lesson request sent! Mark will confirm shortly.');
+    showToast(
+      `Lesson booked & confirmed for ${formatDisplayDate(newLesson.date)} at ${newLesson.startTime}!`
+    );
+  };
+
+  const handleMarkLessonDelivered = async (lessonId) => {
+    const lesson = lessons.find((l) => l.id === lessonId);
+    if (!lesson || lesson.delivered) return;
+    const lessonHours = Number(((Number(lesson.durationMinutes) || 60) / 60).toFixed(2));
+    const pupil = accounts.find((a) => a.id === lesson.pupilId);
+
+    const nextBooked = Math.max(
+      0,
+      Number(((Number(pupil?.hoursBooked) || 0) - lessonHours).toFixed(2))
+    );
+    const nextDelivered = Number(((Number(pupil?.hoursDelivered) || 0) + lessonHours).toFixed(2));
+
+    if (hasRealFirebaseConfig && dbInstance) {
+      await updateDoc(doc(dbInstance, 'lessons', lessonId), {
+        status: 'completed',
+        delivered: true,
+        deliveredAt: new Date().toISOString(),
+      });
+      if (pupil) {
+        await updateDoc(doc(dbInstance, 'accounts', pupil.id), {
+          hoursBooked: nextBooked,
+          hoursDelivered: nextDelivered,
+        });
+      }
+    } else {
+      setLessons((prev) =>
+        prev.map((l) =>
+          l.id === lessonId ? { ...l, status: 'completed', delivered: true } : l
+        )
+      );
+      if (pupil) {
+        setAccounts((prev) =>
+          prev.map((a) =>
+            a.id === pupil.id
+              ? { ...a, hoursBooked: nextBooked, hoursDelivered: nextDelivered }
+              : a
+          )
+        );
+      }
+    }
+    showToast(`Marked ${lessonHours}hr(s) delivered for ${lesson.pupilName}.`);
+  };
+
+  const handleCancelLesson = async (lessonId, cancelledBy = 'instructor') => {
+    const lesson = lessons.find((l) => l.id === lessonId);
+    if (!lesson || lesson.status === 'cancelled') return;
+    const lessonHours = Number(((Number(lesson.durationMinutes) || 60) / 60).toFixed(2));
+    const pupil = accounts.find((a) => a.id === lesson.pupilId);
+
+    const nextBooked = Math.max(
+      0,
+      Number(((Number(pupil?.hoursBooked) || 0) - lessonHours).toFixed(2))
+    );
+    const nextCancelled =
+      cancelledBy === 'pupil'
+        ? Number(((Number(pupil?.hoursCancelled) || 0) + lessonHours).toFixed(2))
+        : Number(pupil?.hoursCancelled) || 0;
+
+    if (hasRealFirebaseConfig && dbInstance) {
+      await updateDoc(doc(dbInstance, 'lessons', lessonId), {
+        status: 'cancelled',
+        cancelledBy,
+        cancelledAt: new Date().toISOString(),
+      });
+      if (pupil) {
+        await updateDoc(doc(dbInstance, 'accounts', pupil.id), {
+          hoursBooked: nextBooked,
+          hoursCancelled: nextCancelled,
+        });
+      }
+    } else {
+      setLessons((prev) =>
+        prev.map((l) => (l.id === lessonId ? { ...l, status: 'cancelled', cancelledBy } : l))
+      );
+      if (pupil) {
+        setAccounts((prev) =>
+          prev.map((a) =>
+            a.id === pupil.id
+              ? { ...a, hoursBooked: nextBooked, hoursCancelled: nextCancelled }
+              : a
+          )
+        );
+      }
+    }
+    showToast(
+      cancelledBy === 'pupil'
+        ? `Lesson cancelled (${lessonHours}hr added to cancelled hours).`
+        : 'Lesson cancelled.'
+    );
   };
 
   const handleUpdateLessonStatus = async (lessonId, status) => {
+    if (status === 'cancelled') {
+      await handleCancelLesson(lessonId, 'instructor');
+      return;
+    }
     if (hasRealFirebaseConfig && dbInstance) {
       await updateDoc(doc(dbInstance, 'lessons', lessonId), { status });
     } else {
@@ -1138,11 +1258,9 @@ export default function App() {
     if (hasRealFirebaseConfig && dbInstance) {
       await updateDoc(doc(dbInstance, 'accounts', accountId), updates);
     } else {
-      setAccounts((prev) =>
-        prev.map((a) => (a.id === accountId ? { ...a, ...updates } : a))
-      );
+      setAccounts((prev) => prev.map((a) => (a.id === accountId ? { ...a, ...updates } : a)));
     }
-    showToast('Account & address details saved.');
+    showToast('Details saved.');
   };
 
   const handleDeleteAccount = async (accountId) => {
@@ -1223,7 +1341,7 @@ export default function App() {
     const endDt = new Date(ey, em - 1, ed);
 
     let count = 0;
-    const newBlocks = [];
+    const addedBlocks = [];
     while (cursor <= endDt && count < 90) {
       const dStr = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(
         2,
@@ -1239,13 +1357,13 @@ export default function App() {
       if (hasRealFirebaseConfig && dbInstance) {
         await addDoc(collection(dbInstance, 'unavailability'), block);
       } else {
-        newBlocks.push({ id: `unavail-${Date.now()}-${count}`, ...block });
+        addedBlocks.push({ id: `unavail-${Date.now()}-${count}`, ...block });
       }
       cursor.setDate(cursor.getDate() + 1);
       count++;
     }
     if (!hasRealFirebaseConfig) {
-      setUnavailability((prev) => [...prev, ...newBlocks]);
+      setUnavailability((prev) => [...prev, ...addedBlocks]);
     }
     showToast(`Blocked ${count} day(s) on your calendar.`);
   };
@@ -1265,11 +1383,10 @@ export default function App() {
     } else {
       setSchoolSettings((prev) => ({ ...prev, ...newSettings }));
     }
-    showToast('Settings & calendar rules saved.');
+    showToast('Settings saved.');
   };
 
   const handleImportRotaEvents = async (parsedList, feedUrl = '') => {
-    const syncStamp = new Date().toLocaleString('en-GB');
     if (hasRealFirebaseConfig && dbInstance) {
       for (const existing of rotaEvents) {
         await deleteDoc(doc(dbInstance, 'rotaEvents', existing.id));
@@ -1281,7 +1398,7 @@ export default function App() {
         doc(dbInstance, 'settings', 'general'),
         {
           rotaFeedUrl: feedUrl || schoolSettings.rotaFeedUrl,
-          lastRotaSync: syncStamp,
+          lastRotaSync: new Date().toLocaleString('en-GB'),
         },
         { merge: true }
       );
@@ -1290,7 +1407,7 @@ export default function App() {
       setSchoolSettings((prev) => ({
         ...prev,
         rotaFeedUrl: feedUrl || prev.rotaFeedUrl,
-        lastRotaSync: syncStamp,
+        lastRotaSync: new Date().toLocaleString('en-GB'),
       }));
     }
     showToast(`Synced ${parsedList.length} work rota shift block(s) (with 1h pre/post buffer).`);
@@ -1311,12 +1428,11 @@ export default function App() {
     );
   }
 
-  // Mandatory Post-Signup Terms & Conditions Splash Screen for Pupils
   if (currentUser.role === 'pupil' && !currentUser.termsAccepted) {
     return (
       <TermsSplashModal
         pupilName={currentUser.name}
-        termsText={schoolSettings.termsAndConditions || DEFAULT_TERMS_AND_CONDITIONS}
+        termsText={schoolSettings.termsAndConditions}
         onAcceptTerms={handleAcceptTerms}
         onSignOut={handleLogout}
       />
@@ -1431,6 +1547,7 @@ export default function App() {
             lessons={lessons}
             accounts={accounts}
             onUpdateLessonStatus={handleUpdateLessonStatus}
+            onMarkLessonDelivered={handleMarkLessonDelivered}
           />
         )}
 
@@ -1442,6 +1559,7 @@ export default function App() {
             rotaEvents={rotaEvents}
             settings={schoolSettings}
             onCreateBookingRequest={handleCreateBookingRequest}
+            onCancelLesson={(lessonId) => handleCancelLesson(lessonId, 'pupil')}
             onConfirm24hAttendance={handleConfirm24hAttendance}
             onGoToSettings={() => setActiveTab('settings')}
           />
@@ -1464,6 +1582,7 @@ export default function App() {
             onUpdateTopicStatus={handleUpdateTopicStatus}
             onUpdateInstructorNotes={handleUpdateInstructorNotes}
             onUpdatePupilTestDates={handleUpdatePupilTestDates}
+            onUpdateAccount={handleUpdateAccount}
             onMessagePupil={handleOpenPupilMessages}
           />
         )}
@@ -1503,6 +1622,15 @@ export default function App() {
             onDeleteUnavailability={handleDeleteUnavailability}
             onSaveSettings={handleSaveSettings}
             onImportRotaEvents={handleImportRotaEvents}
+            onSendMessageToInstructor={async (text) => {
+              const instructor = accounts.find((a) => a.role === 'instructor');
+              if (instructor) {
+                await handleSendMessage(instructor.id, text);
+                showToast('DVLA check code sent to your instructor via Messages!');
+              } else {
+                showToast('Licence & DVLA check code saved.');
+              }
+            }}
           />
         )}
       </main>
@@ -1511,7 +1639,7 @@ export default function App() {
 }
 
 // ---------------------------------------------------------------------------
-// 9. LIGHT-THEME AUTH SCREEN WITH CAPS LOCK DETECTION
+// 8. LIGHT-THEME AUTH SCREEN WITH CAPS LOCK DETECTION
 // ---------------------------------------------------------------------------
 function AuthScreen({ firebaseReady, onLogin, onRegister }) {
   const [mode, setMode] = useState('login');
@@ -1586,7 +1714,7 @@ function AuthScreen({ firebaseReady, onLogin, onRegister }) {
                 : 'bg-amber-50 text-amber-700 border-amber-200'
             }`}
           >
-            {firebaseReady ? '● Live Booking Portal' : '○ Connecting...'}
+            {firebaseReady ? '● Live Booking Portal' : '○ Local Preview Mode'}
           </span>
         </div>
       </header>
@@ -1809,17 +1937,14 @@ function AuthScreen({ firebaseReady, onLogin, onRegister }) {
 }
 
 // ---------------------------------------------------------------------------
-// 10. INSTRUCTOR HOME DASHBOARD
+// 9. INSTRUCTOR HOME DASHBOARD
 // ---------------------------------------------------------------------------
-function InstructorDashboardView({ lessons, accounts, onUpdateLessonStatus }) {
-  const pendingLessons = useMemo(
-    () =>
-      lessons
-        .filter((l) => l.status === 'pending')
-        .sort((a, b) => `${a.date} ${a.startTime}`.localeCompare(`${b.date} ${b.startTime}`)),
-    [lessons]
-  );
-
+function InstructorDashboardView({
+  lessons,
+  accounts,
+  onUpdateLessonStatus,
+  onMarkLessonDelivered,
+}) {
   const upcomingConfirmed = useMemo(() => {
     const today = getTodayDateStr();
     return lessons
@@ -1827,21 +1952,38 @@ function InstructorDashboardView({ lessons, accounts, onUpdateLessonStatus }) {
       .sort((a, b) => `${a.date} ${a.startTime}`.localeCompare(`${b.date} ${b.startTime}`));
   }, [lessons]);
 
+  const pastUndelivered = useMemo(() => {
+    const today = getTodayDateStr();
+    return lessons
+      .filter((l) => l.status === 'confirmed' && !l.delivered && normalizeDateStr(l.date) < today)
+      .sort((a, b) => `${b.date} ${b.startTime}`.localeCompare(`${a.date} ${a.startTime}`));
+  }, [lessons]);
+
+  const totalDeliveredHours = useMemo(
+    () =>
+      accounts
+        .filter((a) => a.role === 'pupil')
+        .reduce((sum, p) => sum + (Number(p.hoursDelivered) || 0), 0),
+    [accounts]
+  );
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
           <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
-            Pending Requests
-          </p>
-          <p className="text-3xl font-extrabold text-amber-600 mt-1">{pendingLessons.length}</p>
-        </div>
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
-            Upcoming Confirmed
+            Upcoming Booked Lessons
           </p>
           <p className="text-3xl font-extrabold text-emerald-600 mt-1">
             {upcomingConfirmed.length}
+          </p>
+        </div>
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+            Total Hours Delivered
+          </p>
+          <p className="text-3xl font-extrabold text-sky-600 mt-1">
+            {totalDeliveredHours.toFixed(1)} hrs
           </p>
         </div>
         <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
@@ -1852,13 +1994,17 @@ function InstructorDashboardView({ lessons, accounts, onUpdateLessonStatus }) {
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-        <h2 className="text-lg font-bold text-slate-900 mb-4">Pending Lesson Requests</h2>
-        {pendingLessons.length === 0 ? (
-          <p className="text-sm text-slate-500">No pending lesson requests right now.</p>
-        ) : (
+      {pastUndelivered.length > 0 && (
+        <div className="bg-white rounded-2xl border border-amber-200 p-6 shadow-sm">
+          <h2 className="text-lg font-bold text-slate-900 mb-1">
+            Awaiting Delivery Confirmation
+          </h2>
+          <p className="text-xs text-slate-500 mb-4">
+            Confirm once these lessons have taken place to move them from Hours Booked to Hours
+            Delivered.
+          </p>
           <div className="space-y-3">
-            {pendingLessons.map((l) => (
+            {pastUndelivered.map((l) => (
               <div
                 key={l.id}
                 className="p-4 rounded-xl border border-amber-200 bg-amber-50/60 flex flex-col md:flex-row md:items-center md:justify-between gap-4"
@@ -1874,30 +2020,29 @@ function InstructorDashboardView({ lessons, accounts, onUpdateLessonStatus }) {
                     <strong>Pick-up:</strong> {l.pickupLocation || l.pickupArea} •{' '}
                     <strong>Drop-off:</strong> {l.dropoffLocation || l.dropoffArea || l.pickupArea}
                   </p>
-                  <p className="text-xs text-slate-500">Focus: {l.focusTopic}</p>
                 </div>
 
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => onUpdateLessonStatus(l.id, 'confirmed')}
+                    onClick={() => onMarkLessonDelivered(l.id)}
                     className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold"
                   >
-                    Approve Lesson
+                    ✓ Confirm Delivered
                   </button>
                   <button
                     type="button"
-                    onClick={() => onUpdateLessonStatus(l.id, 'declined')}
+                    onClick={() => onUpdateLessonStatus(l.id, 'cancelled')}
                     className="px-3 py-2 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold"
                   >
-                    Decline
+                    Cancel
                   </button>
                 </div>
               </div>
             ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
         <div className="flex items-center justify-between mb-4">
@@ -1941,7 +2086,14 @@ function InstructorDashboardView({ lessons, accounts, onUpdateLessonStatus }) {
                   <p className="text-xs text-slate-500">Focus: {l.focusTopic}</p>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onMarkLessonDelivered(l.id)}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold"
+                  >
+                    ✓ Mark Delivered
+                  </button>
                   <a
                     href={buildGoogleCalendarUrl(l)}
                     target="_blank"
@@ -1968,7 +2120,7 @@ function InstructorDashboardView({ lessons, accounts, onUpdateLessonStatus }) {
 }
 
 // ---------------------------------------------------------------------------
-// 11. PUPIL LESSONS & BOOKING DASHBOARD
+// 10. PUPIL LESSONS & BOOKING DASHBOARD
 // ---------------------------------------------------------------------------
 function PupilDashboardView({
   currentUser,
@@ -1977,6 +2129,7 @@ function PupilDashboardView({
   rotaEvents,
   settings,
   onCreateBookingRequest,
+  onCancelLesson,
   onConfirm24hAttendance,
   onGoToSettings,
 }) {
@@ -2129,7 +2282,15 @@ function PupilDashboardView({
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-        <h2 className="text-lg font-bold text-slate-900 mb-4">Request a Driving Lesson</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">Book a Driving Lesson</h2>
+            <p className="text-xs text-slate-500">
+              Slots shown are automatically confirmed and include a 30-min travel radius &amp;
+              10-min instructor notes buffer around adjacent lessons.
+            </p>
+          </div>
+        </div>
         <form onSubmit={handleBookSubmit} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
@@ -2248,16 +2409,16 @@ function PupilDashboardView({
             className="px-6 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-sm disabled:opacity-40"
           >
             {selectedTime
-              ? `Request ${durationMinutes}min Lesson at ${selectedTime}`
+              ? `Book & Confirm ${durationMinutes}min Lesson at ${selectedTime}`
               : 'Select an Available Start Time Above'}
           </button>
         </form>
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-        <h2 className="text-lg font-bold text-slate-900 mb-4">My Booked &amp; Requested Lessons</h2>
+        <h2 className="text-lg font-bold text-slate-900 mb-4">My Booked &amp; Completed Lessons</h2>
         {myLessons.length === 0 ? (
-          <p className="text-sm text-slate-500">You haven’t requested any lessons yet.</p>
+          <p className="text-sm text-slate-500">You haven’t booked any lessons yet.</p>
         ) : (
           <div className="space-y-3">
             {myLessons.map((l) => (
@@ -2272,14 +2433,14 @@ function PupilDashboardView({
                     </span>
                     <span
                       className={`text-xs px-2.5 py-0.5 rounded-full font-bold uppercase ${
-                        l.status === 'confirmed'
+                        l.status === 'completed'
+                          ? 'bg-sky-100 text-sky-800'
+                          : l.status === 'confirmed'
                           ? 'bg-emerald-100 text-emerald-800'
-                          : l.status === 'declined'
-                          ? 'bg-red-100 text-red-700'
-                          : 'bg-amber-100 text-amber-800'
+                          : 'bg-red-100 text-red-700'
                       }`}
                     >
-                      {l.status}
+                      {l.status === 'completed' ? 'Delivered' : l.status}
                     </span>
                   </div>
                   <p className="text-xs text-slate-600 mt-1">
@@ -2289,14 +2450,23 @@ function PupilDashboardView({
                 </div>
 
                 {l.status === 'confirmed' && (
-                  <a
-                    href={buildGoogleCalendarUrl(l)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-3 py-1.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-100 text-slate-800 text-xs font-bold self-start sm:self-auto"
-                  >
-                    + Google Calendar
-                  </a>
+                  <div className="flex items-center gap-2 self-start sm:self-auto">
+                    <a
+                      href={buildGoogleCalendarUrl(l)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-1.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-100 text-slate-800 text-xs font-bold"
+                    >
+                      + Google Calendar
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => onCancelLesson(l.id)}
+                      className="px-3 py-1.5 rounded-xl bg-white border border-red-200 hover:bg-red-50 text-red-600 text-xs font-bold"
+                    >
+                      Cancel Lesson
+                    </button>
+                  </div>
                 )}
               </div>
             ))}
@@ -2308,7 +2478,7 @@ function PupilDashboardView({
 }
 
 // ---------------------------------------------------------------------------
-// 12. GOOGLE CALENDAR-STYLE DIARY VIEW (MONTH / WEEK / SCHEDULE)
+// 11. GOOGLE CALENDAR-STYLE DIARY VIEW (MONTH / WEEK / SCHEDULE)
 // ---------------------------------------------------------------------------
 function GoogleStyleDiaryView({
   isInstructor,
@@ -2489,16 +2659,10 @@ function GoogleStyleDiaryView({
                   </span>
 
                   <div className="space-y-1 w-full mt-1">
-                    {dayLessons.some((l) => l.status === 'confirmed') && (
+                    {dayLessons.length > 0 && (
                       <div
                         className="h-1.5 w-full rounded-full bg-emerald-500"
-                        title="Confirmed Lesson(s)"
-                      />
-                    )}
-                    {dayLessons.some((l) => l.status === 'pending') && (
-                      <div
-                        className="h-1.5 w-full rounded-full bg-amber-400"
-                        title="Pending Lesson Request"
+                        title="Booked Lesson(s)"
                       />
                     )}
                     {(dayUnavail.length > 0 || dayRota.length > 0) && (
@@ -2548,11 +2712,7 @@ function GoogleStyleDiaryView({
                   <div className="space-y-1.5 w-full mt-3">
                     {dayLessons.map((l) => (
                       <div key={l.id} className="space-y-0.5">
-                        <div
-                          className={`h-1.5 w-full rounded-full ${
-                            l.status === 'confirmed' ? 'bg-emerald-500' : 'bg-amber-400'
-                          }`}
-                        />
+                        <div className="h-1.5 w-full rounded-full bg-emerald-500" />
                         <p className="text-[10px] font-bold text-slate-700 truncate">
                           {l.startTime} {isInstructor ? l.pupilName : 'Lesson'}
                         </p>
@@ -2592,14 +2752,8 @@ function GoogleStyleDiaryView({
                     {l.dropoffLocation || l.dropoffArea || l.pickupArea}
                   </p>
                 </div>
-                <span
-                  className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase self-start sm:self-center ${
-                    l.status === 'confirmed'
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : 'bg-amber-100 text-amber-800'
-                  }`}
-                >
-                  {l.status}
+                <span className="px-2.5 py-1 rounded-full text-xs font-bold uppercase bg-emerald-100 text-emerald-800 self-start sm:self-center">
+                  {l.status === 'completed' ? 'Delivered' : l.status}
                 </span>
               </div>
             ))
@@ -2615,10 +2769,8 @@ function GoogleStyleDiaryView({
             </h3>
             <div className="flex items-center gap-3 text-xs font-semibold text-slate-600">
               <span className="flex items-center gap-1.5">
-                <span className="w-3 h-1.5 rounded-full bg-emerald-500 inline-block" /> Confirmed
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="w-3 h-1.5 rounded-full bg-amber-400 inline-block" /> Pending
+                <span className="w-3 h-1.5 rounded-full bg-emerald-500 inline-block" /> Booked
+                Lesson
               </span>
               {isInstructor && (
                 <span className="flex items-center gap-1.5">
@@ -2652,7 +2804,7 @@ function GoogleStyleDiaryView({
                     </p>
                   </div>
                   <span className="text-xs font-bold uppercase px-2.5 py-1 rounded-full bg-white border border-slate-200">
-                    {l.status}
+                    {l.status === 'completed' ? 'Delivered' : l.status}
                   </span>
                 </div>
               ))}
@@ -2684,7 +2836,7 @@ function GoogleStyleDiaryView({
 }
 
 // ---------------------------------------------------------------------------
-// 13. INSTRUCTOR PUPILS DIRECTORY (LIST -> 3 ACTION BUTTONS + TEST DATES)
+// 12. INSTRUCTOR PUPILS DIRECTORY (LIST -> 3 ACTION BUTTONS + LICENCE & HOURS)
 // ---------------------------------------------------------------------------
 function InstructorPupilsDirectoryView({
   accounts,
@@ -2692,6 +2844,7 @@ function InstructorPupilsDirectoryView({
   onUpdateTopicStatus,
   onUpdateInstructorNotes,
   onUpdatePupilTestDates,
+  onUpdateAccount,
   onMessagePupil,
 }) {
   const pupils = useMemo(() => accounts.filter((acc) => acc.role === 'pupil'), [accounts]);
@@ -2702,6 +2855,38 @@ function InstructorPupilsDirectoryView({
     () => pupils.find((p) => p.id === selectedPupilId) || null,
     [pupils, selectedPupilId]
   );
+
+  const [licenceNumber, setLicenceNumber] = useState('');
+  const [licenceExpiryDate, setLicenceExpiryDate] = useState('');
+  const [dvlaCheckCode, setDvlaCheckCode] = useState('');
+  const [glassesRequired, setGlassesRequired] = useState(false);
+  const [licenceVerified, setLicenceVerified] = useState(false);
+
+  const [hoursBookedDraft, setHoursBookedDraft] = useState('0');
+  const [hoursDeliveredDraft, setHoursDeliveredDraft] = useState('0');
+  const [hoursCancelledDraft, setHoursCancelledDraft] = useState('0');
+
+  useEffect(() => {
+    if (!selectedPupil) return;
+    setLicenceNumber(selectedPupil.licenceNumber || '');
+    setLicenceExpiryDate(selectedPupil.licenceExpiryDate || '');
+    setDvlaCheckCode(selectedPupil.dvlaCheckCode || '');
+    setGlassesRequired(Boolean(selectedPupil.glassesRequired));
+    setLicenceVerified(Boolean(selectedPupil.licenceVerified));
+    setHoursBookedDraft(String(Number(selectedPupil.hoursBooked) || 0));
+    setHoursDeliveredDraft(String(Number(selectedPupil.hoursDelivered) || 0));
+    setHoursCancelledDraft(String(Number(selectedPupil.hoursCancelled) || 0));
+  }, [
+    selectedPupil?.id,
+    selectedPupil?.licenceNumber,
+    selectedPupil?.licenceExpiryDate,
+    selectedPupil?.dvlaCheckCode,
+    selectedPupil?.glassesRequired,
+    selectedPupil?.licenceVerified,
+    selectedPupil?.hoursBooked,
+    selectedPupil?.hoursDelivered,
+    selectedPupil?.hoursCancelled,
+  ]);
 
   const calculateProgressPct = (pupil) => {
     const progressMap = pupil.syllabusProgress || {};
@@ -2723,8 +2908,8 @@ function InstructorPupilsDirectoryView({
         <div>
           <h2 className="text-xl font-bold text-slate-900">Pupil Directory</h2>
           <p className="text-sm text-slate-500 mt-1">
-            Click on a pupil below to view their pick-up &amp; drop-off addresses, record Theory /
-            Driving Test dates &amp; syllabus progress, or send them a message.
+            Click on a pupil below to view their pick-up &amp; drop-off addresses, driving licence
+            details, hours delivered/booked/cancelled, syllabus progress, or send a message.
           </p>
         </div>
         <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 self-start sm:self-auto">
@@ -2792,7 +2977,7 @@ function InstructorPupilsDirectoryView({
                             : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                         }`}
                       >
-                        Theory Passed: {formatPickerDisplayDate(pupil.theoryTestPassedDate)}
+                        Theory Passed: {formatShortUKDate(pupil.theoryTestPassedDate)}
                       </span>
                     )}
                     {pupil.drivingTestScheduledDate && (
@@ -2803,7 +2988,7 @@ function InstructorPupilsDirectoryView({
                             : 'bg-amber-50 text-amber-800 border border-amber-200'
                         }`}
                       >
-                        Test Date: {formatPickerDisplayDate(pupil.drivingTestScheduledDate)}
+                        Test Date: {formatShortUKDate(pupil.drivingTestScheduledDate)}
                       </span>
                     )}
                   </div>
@@ -2883,6 +3068,185 @@ function InstructorPupilsDirectoryView({
             </div>
           </div>
 
+          {/* Pupil Lesson Hours Summary & Manual Adjustment Boxes */}
+          <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <h4 className="text-sm font-bold text-slate-900">
+                  Lesson Hours Summary (Auto-Tracked)
+                </h4>
+                <p className="text-xs text-slate-500">
+                  Updates automatically when lessons are booked, confirmed delivered, or cancelled
+                  by the pupil. You can also adjust manually below.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  onUpdateAccount(selectedPupil.id, {
+                    hoursBooked: Math.max(0, Number(hoursBookedDraft) || 0),
+                    hoursDelivered: Math.max(0, Number(hoursDeliveredDraft) || 0),
+                    hoursCancelled: Math.max(0, Number(hoursCancelledDraft) || 0),
+                  })
+                }
+                className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold self-start sm:self-auto"
+              >
+                Save Hours
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-white p-3.5 rounded-xl border border-emerald-200">
+                <label className="block text-[11px] font-extrabold uppercase tracking-wider text-emerald-700 mb-1">
+                  Hours Booked
+                </label>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  value={hoursBookedDraft}
+                  onChange={(e) => setHoursBookedDraft(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-900 font-bold text-base"
+                />
+              </div>
+
+              <div className="bg-white p-3.5 rounded-xl border border-sky-200">
+                <label className="block text-[11px] font-extrabold uppercase tracking-wider text-sky-700 mb-1">
+                  Hours Delivered
+                </label>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  value={hoursDeliveredDraft}
+                  onChange={(e) => setHoursDeliveredDraft(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-900 font-bold text-base"
+                />
+              </div>
+
+              <div className="bg-white p-3.5 rounded-xl border border-amber-200">
+                <label className="block text-[11px] font-extrabold uppercase tracking-wider text-amber-700 mb-1">
+                  Hours Cancelled
+                </label>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  value={hoursCancelledDraft}
+                  onChange={(e) => setHoursCancelledDraft(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-900 font-bold text-base"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* DVLA Driving Licence Details & Checks */}
+          <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h4 className="text-sm font-bold text-slate-900">
+                    UK Driving Licence &amp; DVLA Pre-Lesson Checks
+                  </h4>
+                  <span
+                    className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                      licenceVerified
+                        ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                        : 'bg-amber-100 text-amber-800 border-amber-200'
+                    }`}
+                  >
+                    {licenceVerified
+                      ? '✓ Physically Verified'
+                      : 'Awaiting Physical Sighting at 1st Lesson'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Submitted by the pupil in their Settings. Verify against their physical photocard
+                  at the start of the first lesson.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  onUpdateAccount(selectedPupil.id, {
+                    licenceNumber: licenceNumber.trim().toUpperCase(),
+                    licenceExpiryDate,
+                    dvlaCheckCode: dvlaCheckCode.trim(),
+                    glassesRequired,
+                    licenceVerified,
+                  })
+                }
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold self-start sm:self-auto"
+              >
+                Save &amp; Verify Licence
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Driving Licence Number (16 chars)
+                </label>
+                <input
+                  type="text"
+                  maxLength={18}
+                  value={licenceNumber}
+                  onChange={(e) => setLicenceNumber(e.target.value.toUpperCase())}
+                  placeholder="e.g. TAYLO951024A99IJ"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm font-mono uppercase"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Photocard Expiry Date
+                </label>
+                <CalendarDateInput
+                  value={licenceExpiryDate}
+                  placeholder="Select expiry date..."
+                  allowClear
+                  onChange={(val) => setLicenceExpiryDate(val)}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  DVLA Check Code (Optional)
+                </label>
+                <input
+                  type="text"
+                  maxLength={12}
+                  value={dvlaCheckCode}
+                  onChange={(e) => setDvlaCheckCode(e.target.value)}
+                  placeholder="e.g. aB3dE5gH"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-6 pt-1">
+              <label className="flex items-center gap-2 text-xs font-bold text-slate-800 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={glassesRequired}
+                  onChange={(e) => setGlassesRequired(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 text-emerald-600"
+                />
+                Glasses / Corrective Lenses Required (20m Eyesight Check)
+              </label>
+
+              <label className="flex items-center gap-2 text-xs font-bold text-emerald-800 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={licenceVerified}
+                  onChange={(e) => setLicenceVerified(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 text-emerald-600"
+                />
+                Physical Provisional / Full Licence Sighted &amp; Verified
+              </label>
+            </div>
+          </div>
+
           {activeSubView === 'addresses' && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
@@ -2946,7 +3310,7 @@ function InstructorPupilsDirectoryView({
 }
 
 // ---------------------------------------------------------------------------
-// 14. DVSA SYLLABUS & TEST DATES VIEW
+// 13. DVSA SYLLABUS & TEST DATES VIEW
 // ---------------------------------------------------------------------------
 function SyllabusFlowchartView({
   currentUser,
@@ -3027,7 +3391,7 @@ function SyllabusFlowchartView({
               />
             ) : (
               <div className="px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm font-semibold text-slate-800">
-                {theoryPassedDate ? formatPickerDisplayDate(theoryPassedDate) : 'Not recorded yet'}
+                {theoryPassedDate ? formatDisplayDate(theoryPassedDate) : 'Not recorded yet'}
               </div>
             )}
           </div>
@@ -3046,7 +3410,7 @@ function SyllabusFlowchartView({
             ) : (
               <div className="px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm font-semibold text-slate-800">
                 {drivingScheduledDate
-                  ? formatPickerDisplayDate(drivingScheduledDate)
+                  ? formatDisplayDate(drivingScheduledDate)
                   : 'Not scheduled yet'}
               </div>
             )}
@@ -3146,7 +3510,7 @@ function SyllabusFlowchartView({
 }
 
 // ---------------------------------------------------------------------------
-// 15. MESSAGING CENTER VIEW
+// 14. MESSAGING CENTER VIEW
 // ---------------------------------------------------------------------------
 function MessagingCenterView({
   currentUser,
@@ -3292,7 +3656,7 @@ function MessagingCenterView({
 }
 
 // ---------------------------------------------------------------------------
-// 16. SETTINGS TAB (ADDRESSES, CALENDAR SYNC, ROTA & EMAILJS)
+// 15. SETTINGS TAB (ADDRESSES, CALENDAR SYNC, ROTA, EMAILJS & TERMS)
 // ---------------------------------------------------------------------------
 function AccountAndCalendarSettingsView({
   currentUser,
@@ -3307,6 +3671,7 @@ function AccountAndCalendarSettingsView({
   onDeleteUnavailability,
   onSaveSettings,
   onImportRotaEvents,
+  onSendMessageToInstructor,
 }) {
   const isInstructor = currentUser.role === 'instructor';
 
@@ -3317,6 +3682,17 @@ function AccountAndCalendarSettingsView({
   const [newLocAddress, setNewLocAddress] = useState('');
   const [newLocArea, setNewLocArea] = useState(currentUser.postcodeArea || 'PO19');
 
+  // Pupil Driving Licence & DVLA Check Code State
+  const [pupilLicenceNumber, setPupilLicenceNumber] = useState(currentUser.licenceNumber || '');
+  const [pupilLicenceExpiry, setPupilLicenceExpiry] = useState(
+    currentUser.licenceExpiryDate || ''
+  );
+  const [pupilDvlaCode, setPupilDvlaCode] = useState(currentUser.dvlaCheckCode || '');
+  const [pupilGlassesRequired, setPupilGlassesRequired] = useState(
+    Boolean(currentUser.glassesRequired)
+  );
+
+  // Instructor Unavailability, Rota & Terms State
   const [fromDate, setFromDate] = useState(getTodayDateStr());
   const [toDate, setToDate] = useState(getTodayDateStr());
   const [allDayBlock, setAllDayBlock] = useState(true);
@@ -3330,9 +3706,14 @@ function AccountAndCalendarSettingsView({
   const [rotaError, setRotaError] = useState('');
 
   const [localSettings, setLocalSettings] = useState(settings);
+  const [termsDraft, setTermsDraft] = useState(
+    settings.termsAndConditions || DEFAULT_TERMS_AND_CONDITIONS
+  );
+
   useEffect(() => {
     setLocalSettings(settings);
     if (settings.rotaFeedUrl && !rotaUrl) setRotaUrl(settings.rotaFeedUrl);
+    if (settings.termsAndConditions) setTermsDraft(settings.termsAndConditions);
   }, [settings]);
 
   const handleSavePupilProfile = async (e) => {
@@ -3342,6 +3723,27 @@ function AccountAndCalendarSettingsView({
       postcodeArea,
       phone: phone.trim(),
     });
+  };
+
+  const handleSavePupilLicence = async (e, sendToInstructor = false) => {
+    if (e) e.preventDefault();
+    const cleanNum = pupilLicenceNumber.trim().toUpperCase();
+    const cleanCode = pupilDvlaCode.trim();
+    await onUpdateAccount(currentUser.id, {
+      licenceNumber: cleanNum,
+      licenceExpiryDate: pupilLicenceExpiry,
+      dvlaCheckCode: cleanCode,
+      glassesRequired: pupilGlassesRequired,
+    });
+    if (sendToInstructor && cleanCode && onSendMessageToInstructor) {
+      await onSendMessageToInstructor(
+        `DVLA Licence Check Code for ${currentUser.name}: ${cleanCode} (Driver No: ${
+          cleanNum || 'Not entered'
+        }, Expiry: ${
+          pupilLicenceExpiry ? formatShortUKDate(pupilLicenceExpiry) : 'Not entered'
+        }). Ready for physical licence check at my first lesson.`
+      );
+    }
   };
 
   const handleAddAlternativeLocation = async (e) => {
@@ -3499,6 +3901,119 @@ function AccountAndCalendarSettingsView({
             </form>
           </div>
 
+          {/* Pupil Driving Licence & DVLA Check Code Section */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">
+                  My UK Driving Licence &amp; DVLA Check Code
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Enter your provisional/full licence details before your first lesson so Mark can
+                  verify them when you bring your photocard.
+                </p>
+              </div>
+              <span
+                className={`text-xs font-bold px-3 py-1 rounded-full border self-start sm:self-auto ${
+                  currentUser.licenceVerified
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-amber-50 text-amber-800 border-amber-200'
+                }`}
+              >
+                {currentUser.licenceVerified
+                  ? '✓ Verified by Instructor'
+                  : 'Pending 1st Lesson Physical Check'}
+              </span>
+            </div>
+
+            <form onSubmit={(e) => handleSavePupilLicence(e, false)} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    16-Character Driving Licence Number
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={18}
+                    value={pupilLicenceNumber}
+                    onChange={(e) => setPupilLicenceNumber(e.target.value.toUpperCase())}
+                    placeholder="e.g. TAYLO951024A99IJ"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm font-mono uppercase"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Photocard Expiry Date
+                  </label>
+                  <CalendarDateInput
+                    value={pupilLicenceExpiry}
+                    placeholder="Select expiry date..."
+                    allowClear
+                    onChange={(val) => setPupilLicenceExpiry(val)}
+                  />
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2 text-xs font-bold text-slate-800 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={pupilGlassesRequired}
+                  onChange={(e) => setPupilGlassesRequired(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 text-emerald-600"
+                />
+                I wear glasses or contact lenses to read a number plate from 20 metres
+              </label>
+
+              {/* DVLA Check Code & Send to Instructor Box */}
+              <div className="p-4 rounded-2xl bg-sky-50 border border-sky-200 space-y-3">
+                <div>
+                  <p className="text-xs font-extrabold uppercase tracking-wider text-sky-900">
+                    DVLA Licence Check Code (Required Before First Lesson)
+                  </p>
+                  <p className="text-xs text-sky-800 mt-1">
+                    Generate your free 8-character check code at{' '}
+                    <a
+                      href="https://www.gov.uk/view-driving-licence"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline font-bold"
+                    >
+                      gov.uk/view-driving-licence
+                    </a>{' '}
+                    (valid for 21 days), paste it below, and send it to Mark via in-app messaging.
+                  </p>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-2.5">
+                  <input
+                    type="text"
+                    maxLength={12}
+                    value={pupilDvlaCode}
+                    onChange={(e) => setPupilDvlaCode(e.target.value)}
+                    placeholder="Enter 8-char DVLA check code (e.g. aB3dE5gH)"
+                    className="flex-1 px-3.5 py-2.5 rounded-xl border border-sky-300 bg-white text-slate-900 text-sm font-mono"
+                  />
+                  <button
+                    type="button"
+                    disabled={!pupilDvlaCode.trim()}
+                    onClick={() => handleSavePupilLicence(null, true)}
+                    className="px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold whitespace-nowrap disabled:opacity-40"
+                  >
+                    Save &amp; Send Check Code to Instructor →
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold"
+              >
+                Save Licence Details
+              </button>
+            </form>
+          </div>
+
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-5">
             <div>
               <h2 className="text-lg font-bold text-slate-900">
@@ -3595,15 +4110,15 @@ function AccountAndCalendarSettingsView({
 
       {isInstructor && (
         <>
+          {/* 1. Work Rota / Connecteam .ics Sync */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
             <div>
               <h2 className="text-lg font-bold text-slate-900">
                 Work Rota &amp; External Calendar Sync (.ics)
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Imports all shifts from your Connecteam or Google `.ics` feed (even if marked
-                &ldquo;Free&rdquo;) and automatically blocks <strong>1 hour before</strong> and{' '}
-                <strong>1 hour after</strong> every shift.
+                Imports all shifts from your Connecteam or Google `.ics` feed and automatically
+                blocks <strong>1 hour before</strong> and <strong>1 hour after</strong> every shift.
               </p>
             </div>
 
@@ -3680,6 +4195,7 @@ function AccountAndCalendarSettingsView({
             </details>
           </div>
 
+          {/* 2. Multi-Day Holiday & Appointment Unavailability */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
             <h2 className="text-lg font-bold text-slate-900">
               Holiday &amp; Personal Unavailability Blocks
@@ -3789,6 +4305,7 @@ function AccountAndCalendarSettingsView({
             )}
           </div>
 
+          {/* 3. Working Hours & Automatic 24-Hour EmailJS Reminders */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-5">
             <h2 className="text-lg font-bold text-slate-900">
               Driving Lesson Hours &amp; Automatic 24-Hour Pupil Reminders
@@ -3895,40 +4412,34 @@ function AccountAndCalendarSettingsView({
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <div>
                 <h2 className="text-lg font-bold text-slate-900">
-                  Pupil Terms &amp; Conditions
+                  Pupil Terms &amp; Conditions (Post-Signup Splash Screen)
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Shown to every new pupil immediately after they sign up. Edit below anytime to
-                  update your school policies.
+                  Shown to new pupils immediately after sign-up. Customize your terms anytime below.
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() =>
-                  setLocalSettings({
-                    ...localSettings,
-                    termsAndConditions: DEFAULT_TERMS_AND_CONDITIONS,
-                  })
-                }
-                className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold self-start sm:self-auto"
+                onClick={() => setTermsDraft(DEFAULT_TERMS_AND_CONDITIONS)}
+                className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold self-start sm:self-auto"
               >
                 Reset to Default Template
               </button>
             </div>
 
             <textarea
-              rows={10}
-              value={localSettings.termsAndConditions ?? DEFAULT_TERMS_AND_CONDITIONS}
-              onChange={(e) =>
-                setLocalSettings({ ...localSettings, termsAndConditions: e.target.value })
-              }
-              className="w-full p-3.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-xs sm:text-sm leading-relaxed font-sans focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              rows={8}
+              value={termsDraft}
+              onChange={(e) => setTermsDraft(e.target.value)}
+              className="w-full p-4 rounded-xl border border-slate-300 bg-white text-slate-900 text-xs sm:text-sm leading-relaxed"
             />
 
             <button
               type="button"
-              onClick={() => onSaveSettings(localSettings)}
-              className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold"
+              onClick={() =>
+                onSaveSettings({ ...localSettings, termsAndConditions: termsDraft })
+              }
+              className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold"
             >
               Save Terms &amp; Conditions
             </button>
@@ -3949,7 +4460,10 @@ function AccountAndCalendarSettingsView({
                   >
                     <div>
                       <span className="font-bold text-slate-900">{acc.name}</span> ({acc.email}) •{' '}
-                      {acc.postcodeArea}
+                      {acc.postcodeArea} •{' '}
+                      <span className="text-emerald-700 font-semibold">
+                        {acc.termsAccepted ? 'Terms Accepted' : 'Pending Terms'}
+                      </span>
                     </div>
                     <button
                       type="button"
